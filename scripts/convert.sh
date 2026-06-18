@@ -67,12 +67,9 @@ route_file() {
             echo "markitdown"
             ;;
         pdf)
-            # 简单启发:>10MB 或文件名带 scan/扫描 字样 → MinerU
-            if [ "$size" -gt 10485760 ] || echo "$file" | grep -qiE "scan|扫描|论文|paper|thesis"; then
-                echo "mineru"
-            else
-                echo "markitdown"
-            fi
+            # 默认全走 MinerU VLM(GPU,精度 95.39,版面还原)
+            # 想省时间可改成:小文件走 markitdown(纯文本 PDF)
+            echo "mineru"
             ;;
         jpg|jpeg|png|bmp|tiff|webp)
             echo "mineru"
@@ -147,9 +144,9 @@ while IFS= read -r -d '' file; do
             if check_env mineru; then
                 # shellcheck disable=SC1091
                 source "$TOOLCHAIN_DIR/env.sh" mineru >/dev/null 2>&1
-                # MinerU 输出是目录,我们指定 -o 让它落在 out_path 同名目录下
+                # 调封装好的 parse_pdf.sh(已设好 CUDA_HOME + HF 镜像 + gpu_mem)
                 local_out_dir="${out_path%.md}_mineru"
-                if magic-pdf -p "$file" -o "$(dirname "$out_path")" >>"$LOG_FILE" 2>&1; then
+                if bash "$SCRIPT_DIR/parse_pdf.sh" "$file" "$(dirname "$out_path")" >>"$LOG_FILE" 2>&1; then
                     processed=$((processed + 1))
                 else
                     log "   ❌ 失败: $rel"

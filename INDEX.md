@@ -1,7 +1,7 @@
 # 📍 INDEX — 项目地图
 
 > 这是整个项目的"导航地图"。**每次找东西先看这里。**
-> 最后更新:2026-06-17
+> 最后更新:2026-06-18
 
 ---
 
@@ -50,16 +50,18 @@
 ├── toolchain/                   ← 🔧 工具链(不进 git,太大)
 │   ├── envs/                    ←    Python 虚拟环境
 │   │   ├── base/                ←      基础环境(共同依赖)
-│   │   ├── markitdown/          ←      markitdown 环境
-│   │   └── mineru/              ←      MinerU 环境(GPU)
+│   │   ├── markitdown/          ←      markitdown 环境 ✅
+│   │   └── mineru/              ←      MinerU GPU 环境 ✅ (8.3G, vlm-engine 可用)
 │   ├── bin/                     ←    可执行包装脚本(PATH 化)
+│   ├── MinerU-src/              ←    MinerU 源码 git clone(已改 utils.py)
 │   └── logs/                    ←    各工具运行日志
 │
 ├── scripts/                     ← 📜 顶层脚本(进 git)
-│   ├── convert.sh               ←    一键文档转换(markitdown/MinerU 调度)
-│   └── ...                      ←    未来:评测 / 部署 / 备份
+│   ├── convert.sh               ←    一键文档转换(智能路由:PDF→MinerU GPU,Office→markitdown)
+│   └── parse_pdf.sh             ←    MinerU GPU 解析 PDF 封装(设好 CUDA_HOME + HF 镜像)
 │
 └── docs/                        ← 📖 文档(进 git)
+    ├── mineru-gpu-install.md    ←    MinerU GPU 装法 + 5 个坑的排错
     ├── plans/                   ←    各阶段实施计划
     ├── design/                  ←    设计文档(schema、SKILL 设计)
     └── reference/               ←    参考资料拆解(阿里文章各章节笔记)
@@ -81,6 +83,8 @@
 | 工具怎么装 | `toolchain/envs/<name>/` |
 | 激活环境 | `source toolchain/env.sh <name>` |
 | 一键转文档 | `scripts/convert.sh <dir>` |
+| 单个 PDF 解析(GPU) | `scripts/parse_pdf.sh file.pdf out_dir/` |
+| MinerU 装法/排错 | `docs/mineru-gpu-install.md` |
 | 阿里文章各章节笔记 | `docs/reference/` |
 
 ---
@@ -110,6 +114,9 @@ cd ~/projects/ai-rd-system/kb && wc -l entities/*.md concepts/*.md
 |---|---|
 | 2026-06-17 | 项目初始化,目录骨架 + 文档 + git 仓库建立 |
 | 2026-06-18 | 创建 toolchain/(envs/bin/logs)+ scripts/convert.sh + .gitignore + .gitattributes,git init 并首个 commit (4d425e6) |
+| 2026-06-18 | 装好 markitdown[all](阿里源),转 ali-wiki HTML 验证(80K md) |
+| 2026-06-18 | 装好 MinerU v3.3.1 GPU 版:venv 8.3G + MinerU2.5-Pro 1.2B 模型(2.2G,HF 镜像)+ 改 utils.py gpu_mem 0.5→0.85 + CUDA toolkit 12.4 装好;32 页合同 PDF 53 秒解析完 |
+| 2026-06-18 | 固化 parse_pdf.sh + 改 convert.sh PDF 路由走 MinerU + 写 docs/mineru-gpu-install.md(5 个坑全记录) |
 | | |
 
 ---

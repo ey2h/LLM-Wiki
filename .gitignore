@@ -38,6 +38,7 @@ __pycache__/
 
 # ===== 工具链 — 太大,各机器自己装 =====
 toolchain/envs/
+toolchain/MinerU-src/  # MinerU 源码 git clone,改过的 utils.py 见 docs/mineru-gpu-install.md
 toolchain/logs/
 *.log
 .venv/

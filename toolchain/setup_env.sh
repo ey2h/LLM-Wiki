@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================
 # setup_env.sh — 创建/重建项目内的 Python 虚拟环境
+#
+# 用 uv(快、自动下载 Python)而不是 python -m venv:
+#   - uv venv <path> --python 3.11 自动下载并使用 Python 3.11
+#   - uv pip install 极速装包(并行下载,带 cache)
+#
 # 用法: bash ~/projects/ai-rd-system/toolchain/setup_env.sh <env_name>
+#       bash ~/projects/ai-rd-system/toolchain/setup_env.sh markitdown 3.11
 # ============================================================
 set -e
 
@@ -9,18 +15,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENVS_DIR="$SCRIPT_DIR/envs"
 
+# 确保 uv 在 PATH
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v uv >/dev/null 2>&1; then
+    echo "❌ 未找到 uv,请先安装: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    exit 1
+fi
+
 usage() {
     cat <<EOF
-用法: bash $(basename "$0") <env_name>
+用法: bash $(basename "$0") <env_name> [<python_version>]
 
-可用预设环境:
+参数:
+  env_name          base / markitdown / mineru / <自定义>
+  python_version    可选,默认 3.11(可填 3.10 / 3.12 / 3.13)
+
+预设环境说明:
   base          基础环境(无第三方包)
   markitdown    Microsoft markitdown + 通用文档解析
-  mineru        OpenDataLab MinerU(需 GPU/CUDA)
-
-示例:
-  bash $(basename "$0") markitdown
-  bash $(basename "$0") mineru
+  mineru        OpenDataLab MinerU(运行需 GPU/CUDA,安装不需)
 EOF
 }
 
@@ -30,6 +43,8 @@ if [ $# -lt 1 ]; then
 fi
 
 ENV_NAME="$1"
+PY_VERSION="${2:-3.11}"
+
 ENV_PATH="$ENVS_DIR/$ENV_NAME"
 
 if [ -d "$ENV_PATH" ] && [ -n "$(ls -A "$ENV_PATH" 2>/dev/null | grep -v 'DESC.md')" ]; then
@@ -41,28 +56,17 @@ fi
 
 mkdir -p "$ENV_PATH"
 
-# 检查 uv(优先用 uv,快)
-if command -v uv >/dev/null 2>&1; then
-    echo "🚀 使用 uv 创建环境..."
-    uv venv "$ENV_PATH" --python python3.11
-else
-    echo "🚀 使用 python3 -m venv 创建环境..."
-    python3 -m venv "$ENV_PATH"
-fi
-
-# 写入描述文件
-case "$ENV_NAME" in
-    base)
-        cat > "$ENV_PATH/DESC.md" <<EOD
+write_desc() {
+    case "$1" in
+        base)
+            cat > "$ENV_PATH/DESC.md" <<EOD
 # base — 基础环境
 
 最精简的项目根环境,只装 pip + 通用工具。
-所有其他环境(若使用 \`--system-site-packages\`)都可以基于它。
 EOD
-        ;;
-
-    markitdown)
-        cat > "$ENV_PATH/DESC.md" <<EOD
+            ;;
+        markitdown)
+            cat > "$ENV_PATH/DESC.md" <<EOD
 # markitdown — Microsoft markitdown
 
 **用途**:把 Office / PDF / 图片 / 音视频 转成 markdown。
@@ -73,14 +77,9 @@ markitdown input.docx > output.md
 \`\`\`
 **官网**:https://github.com/microsoft/markitdown
 EOD
-
-        echo "📦 安装 markitdown + 全依赖..."
-        "$ENV_PATH/bin/pip" install --upgrade pip wheel
-        "$ENV_PATH/bin/pip" install "markitdown[all]"
-        ;;
-
-    mineru)
-        cat > "$ENV_PATH/DESC.md" <<EOD
+            ;;
+        mineru)
+            cat > "$ENV_PATH/DESC.md" <<EOD
 # mineru — OpenDataLab MinerU
 
 **用途**:复杂 PDF(扫描件、论文、多栏、表格、公式)→ markdown。
@@ -94,25 +93,49 @@ mineru -p input.pdf -o output_dir/
 \`\`\`
 **官网**:https://github.com/opendatalab/MinerU
 EOD
+            ;;
+        *)
+            cat > "$ENV_PATH/DESC.md" <<EOD
+# $1 — 自定义环境
+创建于 $(date +%Y-%m-%d)
+EOD
+            ;;
+    esac
+}
 
-        echo "📦 安装 MinerU(可能需要 CUDA toolkit)..."
-        "$ENV_PATH/bin/pip" install --upgrade pip wheel
-        # 注意:具体包名以 MinerU 官方文档为准
-        # 旧版:magic-pdf / 新版:mineru
-        "$ENV_PATH/bin/pip" install magic-pdf || \
-        "$ENV_PATH/bin/pip" install mineru || \
-        echo "⚠️  自动安装失败,请参考 MinerU 官方文档手动安装"
+echo "🚀 uv 创建环境 $ENV_NAME (Python $PY_VERSION)..."
+uv venv "$ENV_PATH" --python "$PY_VERSION" --seed
+
+write_desc "$ENV_NAME"
+
+case "$ENV_NAME" in
+    base)
+        echo "✅ 基础环境就绪"
+        ;;
+
+    markitdown)
+        echo "📦 安装 markitdown[all]..."
+        uv pip install --python "$ENV_PATH/bin/python" --upgrade pip wheel
+        uv pip install --python "$ENV_PATH/bin/python" "markitdown[all]"
+        echo "✅ markitdown 环境就绪"
+        ;;
+
+    mineru)
+        echo "📦 安装 MinerU..."
+        uv pip install --python "$ENV_PATH/bin/python" --upgrade pip wheel
+        # 旧版叫 magic-pdf,新版叫 mineru,两个都试
+        if ! uv pip install --python "$ENV_PATH/bin/python" magic-pdf 2>/dev/null; then
+            uv pip install --python "$ENV_PATH/bin/python" mineru || \
+                echo "⚠️  自动安装失败,请参考 MinerU 官方文档手动安装"
+        fi
+        echo "✅ mineru 环境就绪(运行需 GPU)"
         ;;
 
     *)
-        echo "⚠️  未知预设: $ENV_NAME,创建空环境"
-        cat > "$ENV_PATH/DESC.md" <<EOD
-# $ENV_NAME — 自定义环境
-创建于 $(date +%Y-%m-%d)
-EOD
+        echo "✅ 空环境创建完成,需要装什么自己 uv pip install"
         ;;
 esac
 
 echo ""
-echo "✅ 环境创建完成: $ENV_NAME"
+echo "🎉 完成"
 echo "   激活: source $SCRIPT_DIR/env.sh $ENV_NAME"

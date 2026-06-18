@@ -51,8 +51,8 @@
 
 | 工具 | 用途 | 环境 |
 |---|---|---|
-| markitdown | Office/PDF/图片 → md(纯文本) | `toolchain/envs/markitdown/` |
-| MinerU | 复杂 PDF(扫描件/论文/表格) → md | `toolchain/envs/mineru/` |
+| markitdown | Office/PDF/图片 → md(纯文本) | `toolchain/envs/markitdown/` ✅ |
+| MinerU | 复杂 PDF(扫描件/论文/表格) → md,**GPU vlm-engine** | `toolchain/envs/mineru/` ✅ (8.3G) |
 
 **所有可执行入口在 `toolchain/bin/`**,已经 PATH 化。
 
@@ -86,12 +86,19 @@ source ~/projects/ai-rd-system/toolchain/env.sh mineru
 ## 📊 进度
 
 - [x] Phase 0 — 目录骨架、工具链、文档初始化
-- [ ] Phase 1 — 工具链安装(markitdown + MinerU)
+- [x] Phase 1 — 工具链安装(markitdown ✅ + MinerU GPU ✅)
 - [ ] Phase 2 — 批量文档转 md(第一轮摄入)
 - [ ] Phase 3 — KB-META.md / CLAUDE.md schema 编写
 - [ ] Phase 4 — 第一批 KB 页面(entities / concepts / sources)
 - [ ] Phase 5 — 核心 SKILL(kb-tech-solution)开发
 - [ ] Phase 6 — 评测闭环搭建(15 task gold 集)
+
+### Phase 1 详情
+- **markitdown[all]**:venv 110 包,转 HTML 7.2M → 80K md 验证通过
+- **MinerU v3.3.1 GPU 版**:venv 8.3G,torch 2.11+cu130,vllm 0.21,MinerU2.5-Pro 1.2B 模型(2.2G)
+- **测试**:32 页合同 PDF 53 秒解析完,双栏表格 / 法律条款 / 银行账号 全部识别
+- **装法/排错**:`docs/mineru-gpu-install.md`(5 个坑都记录了)
+- **脚本**:`scripts/parse_pdf.sh`(封装 MinerU 调用)+ `scripts/convert.sh`(智能路由)
 
 ---
 
@@ -105,3 +112,5 @@ source ~/projects/ai-rd-system/toolchain/env.sh mineru
 ## 📝 维护者
 
 jack · 2026-06-17 起
+
+**最后更新**:2026-06-18 (Phase 1 完成)
