@@ -109,6 +109,7 @@ cd ~/projects/ai-rd-system/kb && wc -l entities/*.md concepts/*.md
 | 日期 | 变更 |
 |---|---|
 | 2026-06-17 | 项目初始化,目录骨架 + 文档 + git 仓库建立 |
+| 2026-06-18 | 创建 toolchain/(envs/bin/logs)+ scripts/convert.sh + .gitignore + .gitattributes,git init 并首个 commit (4d425e6) |
 | | |
 
 ---
