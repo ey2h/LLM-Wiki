@@ -1,0 +1,81 @@
+# ============================================================
+# AI 研发自动化系统 .gitignore
+# ============================================================
+
+# ===== 原始材料(L1,只读) — 不入 git,太大 =====
+kb-source/
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.xlsx
+*.xls
+*.pdf
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+*.tiff
+*.heic
+
+# ===== 中间产物 — 可重新生成 =====
+kb-md/
+*.converted.md
+.cache/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== 工具链 — 太大,各机器自己装 =====
+toolchain/envs/
+toolchain/logs/
+*.log
+.venv/
+venv/
+env/
+
+# ===== 系统/编辑器 =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.iml
+
+# ===== 本地配置/密钥 =====
+.env
+.env.local
+*.local.yaml
+secrets/
+*.pem
+*.key
+credentials/
+
+# ===== 临时文件 =====
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+
+# ===== OS =====
+.Trashes
+.fseventsd
+.Spotlight-V100
+
+# ===== 评测产物(可重新生成) =====
+eval/runs/
+eval/results/
+*.eval.json
