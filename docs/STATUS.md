@@ -35,15 +35,35 @@
 - Wayland mutter + SSH 进程无法做真实点击(portal/permission/ydotool 三重卡)
 - **全清掉**:模型 / server / ydotool / xdotool / grim / wtype / portal-gnome / dbus-gi / 文档
 
-### Phase 2 — NAS 数据接入 → **改走 SMB** (commit `2f56ad5`)
-- ~~NFS 路线~~ 弃(DSM Squash + Permission denied 折腾大)
-- **走 gvfs 自动挂载**:Ubuntu 文件管理器访问 `smb://z720.local/jack 共享给我/`
-  → 自动挂到 `/run/user/1000/gvfs/smb-share:server=z720.local,share=jack%20共享给我/`
-- **符号链接 2 条** 进 `kb-source/`:
-  - `z720-archives` → `项目存档`(历史归档,2012-2026 年度文件夹)
-  - `z720-projects`  → `Projects`(当前活跃,BIM/Grasshopper/EY2H/MBA/Maijun 等)
-- **`scripts/refresh_smb_mount.sh`**:登出/重启后挂载失效,跑这脚本重建链接
-- **稳定性提示**:gvfs 路径是 session 级的,重启要重新登录 + 文件管理器点一下
+### Phase 1.7 — MinerU 3.3.1 → 3.4.0 升级 + 文档转换试水 (uncommitted)
+- **升级**:`pip install -U mineru[all]`(清华镜像)3.3.1 → 3.4.0(2026-06-18 最新)
+- **OCR 升级到 PP-OCRv6**(准确率 +11%,速度 +100%)
+- **NAS 数据接入改走 NFS**(取代 SMB):
+  - `sudo mount -t nfs -o vers=3,nolock,soft 192.168.1.101:/fs/1000/nfs /mnt/nfs`
+  - DSM 上 NFS export `项目存档` + `LLM-WIKI` 两个 share
+  - SMB gvfs 备选还在(同 IP 同 share,不走 NFS 时用)
+- **扫描件判别**:`/tmp/pdf_is_scanned.py` 中间 3 页字符数 avg < 30 → 扫描件
+- **PDF 处理双路径**:
+  - 非扫描 PDF → `pdftotext -layout`(系统命令,快,中英保版式)
+  - 扫描件 PDF → mineru GPU(实测 70s/19 页,7G 显存,含表格 + LaTeX + OCR)
+  - 原因:markitdown PDF 后端 pdfminer 抽不出中英文混排(SHNM PDF 只能出 1 byte)
+- **PDF 以外一律 markitdown**:`docx/xlsx/xls/pptx/ppt/doc`
+  - `.doc` 旧 binary 格式 markitdown 不认(88 个未处理,可能需要 antiword/catdoc/pandoc 兜底)
+- **小批量试跑 2012**(10 文件):
+  - 9 成功:`docx/xlsx/xls/pptx/pdf(非扫描)` 全过
+  - 1 失败:`.doc` 旧 binary 格式 markitdown 不认(88 个未处理)
+  - 1 跳过:`RFI PDF` 扫描件(用 pdftotext 失败,改走 mineru GPU 已验证)
+- **2012 全量 696 文件未跑**(计划后台挂起 30-60 分钟)
+- **GPU A3000 12G 占用**:
+  - 静态 ~370 MiB
+  - mineru vlm-engine 峰值 ~7 GB(2.15G vlm + 773M unimernet + OCR models)
+
+### Phase 2 — NAS 数据接入 → **走 NFS** (commit `fea3314`)
+- ~~NFS 路线~~ 弃 → **改 NFS 又改回**(DSM 端 NFS export 已加)
+- **NFS 挂载**:`192.168.1.101:/fs/1000/nfs` → `/mnt/nfs`
+  - 包含两个 share:`项目存档/`(历史归档)+ `LLM-WIKI/`(知识库)
+- **SMB gvfs 备选**:`/run/user/1000/gvfs/smb-share:server=z720.local,share=jack%20共享给我/`
+- **符号链接** `kb-source/z720-archives` + `z720-projects`(指 SMB 路径,刷新用 `scripts/refresh_smb_mount.sh`)
 
 ## 📋 待启动
 
