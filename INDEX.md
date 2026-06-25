@@ -84,7 +84,9 @@
 | 激活环境 | `source toolchain/env.sh <name>` |
 | 一键转文档 | `scripts/convert.sh <dir>` |
 | 单个 PDF 解析(GPU) | `scripts/parse_pdf.sh file.pdf out_dir/` |
+| **Gemma 4 GGUF 服务** | `serve-gemma {e4b\|12b\|stop\|status\|health}` 全局脚本(`~/.local/bin/`)|
 | MinerU 装法/排错 | `docs/mineru-gpu-install.md` |
+| llama.cpp 装法/排错 | `docs/llama-cpp-deploy.md` |
 | 阿里文章各章节笔记 | `docs/reference/` |
 
 ---
@@ -117,6 +119,8 @@ cd ~/projects/ai-rd-system/kb && wc -l entities/*.md concepts/*.md
 | 2026-06-18 | 装好 markitdown[all](阿里源),转 ali-wiki HTML 验证(80K md) |
 | 2026-06-18 | 装好 MinerU v3.3.1 GPU 版:venv 8.3G + MinerU2.5-Pro 1.2B 模型(2.2G,HF 镜像)+ 改 utils.py gpu_mem 0.5→0.85 + CUDA toolkit 12.4 装好;32 页合同 PDF 53 秒解析完 |
 | 2026-06-18 | 固化 parse_pdf.sh + 改 convert.sh PDF 路由走 MinerU + 写 docs/mineru-gpu-install.md(5 个坑全记录) |
+| 2026-06-25 | Phase 1.5:全局编译 llama.cpp b9784 + CUDA(35 分钟),下 Gemma 4 E4B/12B GGUF(魔塔),E4B 55 tok/s 跑通,12B 25 tok/s 跑通 |
+| 2026-06-25 | 写全局脚本 `~/.local/bin/serve-gemma`(e4b/12b/stop/status/health)+ 配 Hermes custom_providers + fallback_providers(E4B 64K ctx),一次只跑一个 |
 | | |
 
 ---

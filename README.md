@@ -53,8 +53,10 @@
 |---|---|---|
 | markitdown | Office/PDF/图片 → md(纯文本) | `toolchain/envs/markitdown/` ✅ |
 | MinerU | 复杂 PDF(扫描件/论文/表格) → md,**GPU vlm-engine** | `toolchain/envs/mineru/` ✅ (8.3G) |
+| llama.cpp | GGUF 推理服务(E4B / 12B)| `~/.local/bin/llama-server` ✅ (b9784 + CUDA,自编译) |
+| Gemma 4 GGUF | 本地 LLM/多模态推理(E4B 55 tok/s,12B 25 tok/s)| `~/models/gemma4-gguf/` ✅ |
 
-**所有可执行入口在 `toolchain/bin/`**,已经 PATH 化。
+**所有可执行入口在 `toolchain/bin/` 或 `~/.local/bin/`**,已经 PATH 化。
 
 ---
 
@@ -81,12 +83,32 @@ source ~/projects/ai-rd-system/toolchain/env.sh mineru
 
 待 SKILL 包开发完后,通过 Claude Code / Aone-Copilot / Hermes 加载 `skills/`。
 
+### 4. 启动 Gemma 4 GGUF 推理服务(按需)
+
+**全局脚本**:`~/.local/bin/serve-gemma`(自动 PATH 化,任何目录可用)。
+
+```bash
+# 启动 E4B(port 8001,快,55 tok/s,5G 显存)
+serve-gemma e4b
+
+# 启动 12B(port 8002,质量高,25 tok/s,9.5G 显存)
+serve-gemma 12b
+
+# 停 / 状态 / 探活
+serve-gemma stop
+serve-gemma status
+serve-gemma health
+```
+
+**一次只跑一个** — A3000 12G 装不下两个模型同时(16G > 12G)。日常保持空闲,按需启动。E4B 配为 Hermes 的 fallback provider(主模型挂了自动接)。详细见 [`docs/llama-cpp-deploy.md`](./docs/llama-cpp-deploy.md)。
+
 ---
 
 ## 📊 进度
 
 - [x] Phase 0 — 目录骨架、工具链、文档初始化
 - [x] Phase 1 — 工具链安装(markitdown ✅ + MinerU GPU ✅)
+- [x] Phase 1.5 — 本地 LLM 推理(llama.cpp b9784 + CUDA ✅ + Gemma 4 E4B/12B GGUF ✅)
 - [ ] Phase 2 — 批量文档转 md(第一轮摄入)
 - [ ] Phase 3 — KB-META.md / CLAUDE.md schema 编写
 - [ ] Phase 4 — 第一批 KB 页面(entities / concepts / sources)
@@ -99,6 +121,19 @@ source ~/projects/ai-rd-system/toolchain/env.sh mineru
 - **测试**:32 页合同 PDF 53 秒解析完,双栏表格 / 法律条款 / 银行账号 全部识别
 - **装法/排错**:`docs/mineru-gpu-install.md`(5 个坑都记录了)
 - **脚本**:`scripts/parse_pdf.sh`(封装 MinerU 调用)+ `scripts/convert.sh`(智能路由)
+
+### Phase 1.5 详情(本地 LLM 推理)
+- **llama.cpp b9784 + CUDA**:自编译(Linux 唯一路径,因为 GitHub release + conda-forge 都没 Linux CUDA prebuilt)
+- **Gemma 4 GGUF Q4_K_M**(魔塔下载):
+  - E4B:5.0G,显存 4.7G,**55-57 tok/s**(port 8001)
+  - 12B:6.9G,显存 9.5G,**25-26 tok/s**(port 8002)
+- **多模态**:支持 image input(走 mmproj),text+image+audio 多模态
+- **OpenAI 兼容 API**:`/v1/chat/completions` 可直接对接
+- **测试**:简单问答 / 中文常识 / 代码生成 / 组合数学 全部通过
+- **装法/排错**:`docs/llama-cpp-deploy.md`(5 个坑:无 Linux CUDA prebuilt / CUDA 头文件路径 / modelscope 参数 / thinking 模式吞 content 等)
+- **脚本**:`~/.local/bin/serve-gemma`(全局,e4b / 12b / stop / status / health)
+- **Hermes fallback**:`custom_providers` + `fallback_providers` 配 E4B(主模型挂了接上);**一次只跑一个**(A3000 12G 装不下两个同时),平时空闲按需 `serve-gemma e4b` 5 秒起好
+- **下一步**:**Phase 1.6** Holo3.1(Computer-Use VLM,基于 Qwen) — 已分析,等 SKILL 框架搭好后接入
 
 ---
 
@@ -113,4 +148,4 @@ source ~/projects/ai-rd-system/toolchain/env.sh mineru
 
 jack · 2026-06-17 起
 
-**最后更新**:2026-06-18 (Phase 1 完成)
+**最后更新**:2026-06-25 (Phase 1.5 完成:Gemma 4 GGUF + llama.cpp 跑通)
