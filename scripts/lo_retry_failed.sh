@@ -32,19 +32,22 @@ while IFS= read -r line; do
             out="$DST/${rel}.doc.md"
             tmpdir=$(mktemp -d)
             echo "[$(date '+%H:%M:%S')] LO: $rel"
-            if libreoffice --headless --convert-to txt --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
-                txt=$(find "$tmpdir" -name "*.txt" -type f 2>/dev/null | head -1)
-                if [ -n "$txt" ] && [ -s "$txt" ]; then
-                    cp "$txt" "$out"
-                    FIXED=$((FIXED + 1))
-                    echo "  ✅ $(stat -c%s "$out") B"
-                else
-                    STILL_FAIL=$((STILL_FAIL + 1))
-                    echo "  ❌ 空"
+            local lo_ok=0
+            for try in 1 2 3; do
+                if libreoffice --headless --convert-to docx --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
+                    docx=$(find "$tmpdir" -name "*.docx" -type f 2>/dev/null | head -1)
+                    if [ -n "$docx" ] && "$MD_ENV/markitdown" "$docx" > "$out" 2>/dev/null; then
+                        FIXED=$((FIXED + 1))
+                        echo "  ✅ $(stat -c%s "$out") B"
+                        lo_ok=1
+                        break
+                    fi
                 fi
-            else
+                sleep 2
+            done
+            if [ $lo_ok -eq 0 ]; then
                 STILL_FAIL=$((STILL_FAIL + 1))
-                echo "  ❌ LO 失败"
+                echo "  ❌ 3 次重试失败"
             fi
             rm -rf "$tmpdir"
             ;;

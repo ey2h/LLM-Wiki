@@ -74,19 +74,26 @@ run_one() {
         cp "$src" "$dst_file"
         count_txt=$((count_txt + 1))
     elif [ "$ext_lower" = "doc" ]; then
-        # 旧 binary 格式 → LibreOffice headless → txt
+        # 旧 binary 格式 → LibreOffice headless → docx → markitdown
+        # (不能直接转 txt,会丢格式;docx 路径保留 Word 结构)
+        # LO 对 NFS 中文路径偶发失败,加 retry
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
-        if libreoffice --headless --convert-to txt --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
-            local txt=$(find "$tmpdir" -name "*.txt" -type f 2>/dev/null | head -1)
-            if [ -n "$txt" ] && [ -s "$txt" ]; then
-                cp "$txt" "$dst_file"
-            else
-                echo "  ⚠️ lo→txt empty: $rel" >> "$LOG"
-                count_md_fail=$((count_md_fail + 1))
+        local lo_ok=0
+        for try in 1 2 3; do
+            if libreoffice --headless --convert-to docx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
+                local docx=$(find "$tmpdir" -name "*.docx" -type f 2>/dev/null | head -1)
+                if [ -n "$docx" ]; then
+                    if "$MD_ENV/markitdown" "$docx" > "$dst_file" 2>> "$LOG"; then
+                        lo_ok=1
+                        break
+                    fi
+                fi
             fi
-        else
-            echo "  ⚠️ lo failed (.doc): $rel" >> "$LOG"
+            sleep 2
+        done
+        if [ $lo_ok -eq 0 ]; then
+            echo "  ⚠️ LO→docx→md 失败 (重试3次): $rel" >> "$LOG"
             count_md_fail=$((count_md_fail + 1))
         fi
         rm -rf "$tmpdir"
