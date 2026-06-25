@@ -148,4 +148,6 @@ serve-gemma health
 
 jack · 2026-06-17 起
 
-**最后更新**:2026-06-25 (Phase 1.5 完成:Gemma 4 GGUF + llama.cpp 跑通)
+**最后更新**:2026-06-25 (Phase 1.5 收尾:STATUS.md + TODO.md 上线)
+
+> 详细进度大盘:`docs/STATUS.md` · 待办:`docs/TODO.md`
