@@ -29,52 +29,53 @@
 - **Hermes fallback 测过**:`hermes chat --provider gemma4-e4b` 跑通 ✅
 - **方案 B(完全空闲按需启动)**:server 默认不起,触发 fallback 前手动 `serve-gemma e4b`
 
-## ⏸️ 阻塞中
+### Phase 1.6 — Holo3.1 试水 → **撤回** (cleanup `2f56ad5`)
+- H Company 4B GGUF 跑通 server,token/s 健康(60 tok/s,首 token 91ms)
+- **GUI grounding 坐标偏 190px + Q4 量化中文短 prompt 循环 bug** —— 不可用
+- Wayland mutter + SSH 进程无法做真实点击(portal/permission/ydotool 三重卡)
+- **全清掉**:模型 / server / ydotool / xdotool / grim / wtype / portal-gnome / dbus-gi / 文档
 
-### Phase 2 — 群晖 NFS 挂载
-- **状态**:技术层通,ACL 锁死
-- `vers=3,nolock,soft` 挂得上,但 `/mnt/project` mode 000
-- 客户端 jack 无权访问(DSM 默认 Squash 把 root → nobody)
-- **DSM 控制面板 → 共享文件夹 → NFS 权限 → 高级设置 → Squash → "无映射"** 可解(用户决定是否开)
-- SMB 备选方案未试
+### Phase 2 — NAS 数据接入 → **改走 SMB** (commit `2f56ad5`)
+- ~~NFS 路线~~ 弃(DSM Squash + Permission denied 折腾大)
+- **走 gvfs 自动挂载**:Ubuntu 文件管理器访问 `smb://z720.local/jack 共享给我/`
+  → 自动挂到 `/run/user/1000/gvfs/smb-share:server=z720.local,share=jack%20共享给我/`
+- **符号链接 2 条** 进 `kb-source/`:
+  - `z720-archives` → `项目存档`(历史归档,2012-2026 年度文件夹)
+  - `z720-projects`  → `Projects`(当前活跃,BIM/Grasshopper/EY2H/MBA/Maijun 等)
+- **`scripts/refresh_smb_mount.sh`**:登出/重启后挂载失效,跑这脚本重建链接
+- **稳定性提示**:gvfs 路径是 session 级的,重启要重新登录 + 文件管理器点一下
 
 ## 📋 待启动
-
-### Phase 1.6 — Holo3.1 集成路线(commit `4eee922`)
-- **H Company(法国)2026-06-01 发布**,基座 Qwen 3.5,Apache 2.0
-- 4 个尺寸:0.8B / 4B / 9B / 35B-A3B(MoE 3B 激活)
-- 量化:BF16 / FP8 / Q4 GGUF / NVFP4(A3000 不支持 NVFP4 硬件加速)
-- AndroidWorld 67% → **79.3%**(35B-A3B)
-- 4B/9B AndroidWorld 58% → **71%**
-- **A3000 12G 兼容性**:4B 最佳(3.2G),9B 满载,35B 跑不动
-- **GGUF 源推荐**:`prithivMLmods/Holo-3.1-4B-GGUF`(4B + mmproj 齐)
-- **路线写完**:`docs/holo3-roadmap.md`(4.4K,121 行)
-- **决策点**:是否下 4B 试水 / 走 GUI agent SKILL 路线
 
 ### Phase 3 — KB 架构 + 8 SKILL 包
 - KB-META 设计未启动
 - 8 个 SKILL 目录:`skills/` 下空骨架
 - 评测闭环未设计
+- **Phase 2 现在通了,可以从 z720-archives / z720-projects 直接抽取文档进 kb-md/**
 
 ## 🔧 待做小项
-
-- [ ] `docs/INDEX.md` 加 serve-gemma 全局脚本的引用
-- [ ] `README.md` 快速开始加 fallback 使用说明
+- [ ] `docs/INDEX.md` 加 serve-gemma 全局脚本 + refresh_smb_mount.sh 的引用
+- [ ] `README.md` 快速开始加 SMB 接入说明
 - [ ] `serve-gemma swap` 子命令(E4B/12B 一键切换)
-- [ ] 把 Holo3.1 决策写到 `docs/roadmap.md`
+- [ ] `convert.sh` 加 `--from z720-archives` 入口,直接转 NAS 文档
+- [ ] 测一下 SMB 链路在 mineru + markitdown 下能不能直接读(性能/编码问题)
 
 ## 📦 当前 Git
 
 ```
-main: c582840
+main: 2f56ad5  (cleanup: 撤掉 Holo3.1 路线)
+       c75511b  (docs: Holo3.1-4B 实测报告 — 已删除)
+       c582840  (feat: Phase 1.5 Gemma 4 + Hermes fallback)
+       6fe8a8e  (Phase 1 MinerU GPU)
 ```
 
 ## 🖥️ 当前资源
 
 | 资源 | 状态 |
 |---|---|
-| GPU 显存 | 572M / 12.3G(完全空闲) |
-| E4B server | ❌ 停 |
-| 12B server | ❌ 停 |
+| GPU 显存 | 392M / 12.3G(完全空闲) |
+| E4B server | ❌ 停(`serve-gemma e4b` 启动) |
+| 12B server | ❌ 停(显存装不下 64K,平时不用) |
 | Hermes 主模型 | MiniMax-M3(微信通道默认) |
+| NAS SMB 挂载 | ✅ z720.local(需保持文件管理器登录状态) |
 | fallback provider | gemma4-e4b(需手动起 server) |
