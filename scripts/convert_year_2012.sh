@@ -73,6 +73,43 @@ run_one() {
     elif [ "$ext_lower" = "txt" ] || [ "$ext_lower" = "log" ]; then
         cp "$src" "$dst_file"
         count_txt=$((count_txt + 1))
+    elif [ "$ext_lower" = "doc" ]; then
+        # 旧 binary 格式 → LibreOffice headless → txt
+        count_md=$((count_md + 1))
+        local tmpdir=$(mktemp -d)
+        if libreoffice --headless --convert-to txt --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
+            local txt=$(find "$tmpdir" -name "*.txt" -type f 2>/dev/null | head -1)
+            if [ -n "$txt" ] && [ -s "$txt" ]; then
+                cp "$txt" "$dst_file"
+            else
+                echo "  ⚠️ lo→txt empty: $rel" >> "$LOG"
+                count_md_fail=$((count_md_fail + 1))
+            fi
+        else
+            echo "  ⚠️ lo failed (.doc): $rel" >> "$LOG"
+            count_md_fail=$((count_md_fail + 1))
+        fi
+        rm -rf "$tmpdir"
+    elif [ "$ext_lower" = "ppt" ]; then
+        # 旧 binary → LibreOffice → pptx → markitdown(保留幻灯片结构)
+        count_md=$((count_md + 1))
+        local tmpdir=$(mktemp -d)
+        if libreoffice --headless --convert-to pptx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
+            local pptx=$(find "$tmpdir" -name "*.pptx" -type f 2>/dev/null | head -1)
+            if [ -n "$pptx" ]; then
+                "$MD_ENV/markitdown" "$pptx" > "$dst_file" 2>> "$LOG" || {
+                    echo "  ⚠️ markitdown failed (.ppt→pptx): $rel" >> "$LOG"
+                    count_md_fail=$((count_md_fail + 1))
+                }
+            else
+                echo "  ⚠️ lo→pptx empty: $rel" >> "$LOG"
+                count_md_fail=$((count_md_fail + 1))
+            fi
+        else
+            echo "  ⚠️ lo failed (.ppt): $rel" >> "$LOG"
+            count_md_fail=$((count_md_fail + 1))
+        fi
+        rm -rf "$tmpdir"
     else
         count_md=$((count_md + 1))
         if "$MD_ENV/markitdown" "$src" > "$dst_file" 2>> "$LOG"; then
@@ -99,9 +136,16 @@ echo "目: $DST"
 echo "日志: $LOG"
 echo ""
 
-# 用 ls -laR 遍历(SMB/NFS 都比 find 快,避免 stat)
-while IFS= read -r src; do
-    [ -z "$src" ] && continue
+# 用 find -printf "%P" 给相对路径(避免 ls -laR 拼接 bug)
+# 同时跳过 @eaDir(Synology thumbnail 目录)和 .DS_Store
+while IFS= read -r rel; do
+    [ -z "$rel" ] && continue
+    case "$rel" in
+        @eaDir/*|.DS_Store) continue ;;
+    esac
+    src="$SRC/$rel"
+    [ -f "$src" ] || continue   # 防止非常规文件
+    
     base=$(basename "$src")
     ext_lower="$(echo "${base##*.}" | tr '[:upper:]' '[:lower:]')"
 
@@ -127,9 +171,7 @@ while IFS= read -r src; do
             count_skip=$((count_skip + 1))
             ;;
     esac
-done < <(ls -laR "$SRC" 2>/dev/null | grep "^-" | awk '{print $NF}' | while read f; do
-    echo "$SRC/$f"
-done)
+done < <(cd "$SRC" && find . -type f -not -path './@eaDir/*' 2>/dev/null | sed 's|^\./||')
 
 echo ""
 echo "=== 完成 ==="
