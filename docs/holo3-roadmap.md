@@ -115,7 +115,9 @@ Holo3.1 强在 UI 截图理解,可以**二次校验** MinerU 转的 md 是否漏
 
 ## 8. 待决策(给 jack)
 
-- [ ] **跑路径 2**(下 4B 试水)?还是先停在路径 1?
-- [ ] Holo3.1 跟主 KB 系统优先级哪个高?
-- [ ] 走魔塔镜像还是 hf-mirror.com?
-- [ ] 9B 模型要不要一起下(可能跟 E4B 撞显存,只能"一次一个")
+- [x] **跑路径 2**:✅ 测完(见 `docs/holo3-test-report.md`)
+  - 下 Holo3.1-4B Q4_K_M ✅(hf-mirror,5 分钟)
+  - 启 llama-server ✅(4.4G 显存,58 tok/s)
+  - 跑 5 个测试 ❌ 发现**致命问题**:Q4 量化 + 短 prompt 会无限循环
+  - GUI grounding 坐标错 190px
+- [ ] **下一步:试 Q5_K_M / Q8_0?** 还是直接跳过 Holo3.1?
