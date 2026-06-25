@@ -40,11 +40,16 @@
 
 ## 📋 待启动
 
-### Phase 1.6 — Holo3.1 (GUI agent 路线,可选)
-- 已研究:H Company(法国)2026 家族,0.8B/4B/9B/35B-A3B MoE
-- AndroidWorld 67% → 79.3%(35B-A3B)
-- DGX Spark NVFP4 1.41× 吞吐
-- 用户说"等会",未定优先级
+### Phase 1.6 — Holo3.1 集成路线(commit `4eee922`)
+- **H Company(法国)2026-06-01 发布**,基座 Qwen 3.5,Apache 2.0
+- 4 个尺寸:0.8B / 4B / 9B / 35B-A3B(MoE 3B 激活)
+- 量化:BF16 / FP8 / Q4 GGUF / NVFP4(A3000 不支持 NVFP4 硬件加速)
+- AndroidWorld 67% → **79.3%**(35B-A3B)
+- 4B/9B AndroidWorld 58% → **71%**
+- **A3000 12G 兼容性**:4B 最佳(3.2G),9B 满载,35B 跑不动
+- **GGUF 源推荐**:`prithivMLmods/Holo-3.1-4B-GGUF`(4B + mmproj 齐)
+- **路线写完**:`docs/holo3-roadmap.md`(4.4K,121 行)
+- **决策点**:是否下 4B 试水 / 走 GUI agent SKILL 路线
 
 ### Phase 3 — KB 架构 + 8 SKILL 包
 - KB-META 设计未启动

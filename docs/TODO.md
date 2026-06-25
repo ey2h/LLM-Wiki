@@ -12,11 +12,11 @@
 
 ## 优先级 P1(下一步规划,用户决定走哪条)
 
-### Phase 1.6 — Holo3.1 GUI agent(可选路线)
-- [ ] 决定是否下载 Holo3.1 模型(4B/9B/35B-A3B)
-- [ ] 写 `docs/holo3-roadmap.md` 集成方案
-- [ ] 评估需要 GPU 资源
-- **状态**:用户说"等会",**待用户确认**
+### Phase 1.6 — Holo3.1 GUI agent(调研完成,待决策)
+- [x] 写 `docs/holo3-roadmap.md`(commit `4eee922`)
+- [ ] 决策:下 Holo3.1-4B 试水?(3.2G GGUF,A3000 5G 显存跑得动)
+- [ ] 决策:走 GUI agent SKILL 路线(方案 B:Playwright + xdotool)
+- [ ] 决策:魔塔镜像 vs hf-mirror.com?
 
 ### Phase 3 — KB 架构设计
 - [ ] 写 `docs/kb-meta.md`:KB-META 字段设计(实体/关系/属性)
@@ -32,7 +32,8 @@
 - [ ] `docs/roadmap.md` 加 Holo3.1 路线分析
 
 ### serve-gemma 增强
-- [ ] `swap` 子命令(E4B/12B 一键切换)
+- [ ] `serve-gemma swap` 子命令(E4B/12B 一键切换)
+- [ ] `serve-gemma holo3-4b` 子命令(扩展支持 Holo3.1)
 - [ ] `logs` 子命令(看启动日志路径)
 - [ ] `list` 子命令(列出可用模型)
 
