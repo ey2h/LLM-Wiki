@@ -40,6 +40,32 @@ updated: 2026-06-26
 - 作者: jack (via Hermes)
 - commit: 待 commit
 
+## 2026-06-26 — Phase 3 规范层 + 评测层 + SKILL 1 端到端
+
+- 变更类型: 新建规范 + 评测工具 + 18 个 Source concept 页
+- 变更范围: 22 页(2 规范 + 2 lint 工具 + 18 concept)
+- 触发原因: Phase 3 主线推进
+- 变更内容:
+  - `kb/CLAUDE.md` v0.1 — SKILL 工作规范(9 段结构 + Hard Gate + Guard Rail)
+  - `kb/lint/schema_gate.py` v0.1 + 自测脚本 — L1 结构层评测
+  - `kb/lint/lint.py` v0.1 — L1.5 语义 lint(孤页/断链/过时/重复/空页)
+  - 18 个 Source concept 页(SKILL 1 在 2012 真实数据上跑通)
+  - `docs/nfs-automount.md` — systemd automount 配置
+- 评测影响: schema_gate 18/18 绿灯;lint 暴露 KB 不完整(7 孤页 + 6 真实断链)
+- 8 commits 推到 origin/main:`89bec50..62bafbb`
+- 作者: jack (via Hermes)
+
+## 2026-06-26 — 竞品调研:Yuxi (xerrors/Yuxi)
+
+- 变更类型: 调研笔记
+- 变更范围: 1 篇调研文档
+- 触发原因: 用户询问 Yuxi 与 ai-rd-system 区别
+- 变更内容:
+  - `docs/competitors/yuxi.md` — 定位差异 / 可借鉴点 / 决策:不迁移
+- 决策: 借鉴 LightRAG 检索 + MCP 协议,但**不迁移到 Yuxi 平台**
+- 未来可能: 加 LightRAG 检索层 / MCP 包 SKILL / Neo4j 知识图谱
+- 作者: jack (via Hermes)
+
 ---
 
 _(本文件由 LLM 维护,任何 ≥10 页变更必追加记录)_
