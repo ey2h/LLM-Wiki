@@ -49,6 +49,8 @@ updated: 2026-06-26
 
 ### Plans(设计方案)
 
+- [[plans/curtain-wall-quote-v1-v1]] — 幕墙与外装修工程造价估算方案 v1(by SKILL 2, 2026-06-27)
+
 - 待写
 
 ## 检索

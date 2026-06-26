@@ -69,3 +69,11 @@ updated: 2026-06-26
 ---
 
 _(本文件由 LLM 维护,任何 ≥10 页变更必追加记录)_
+
+## 2026-06-27 — SKILL 2 首次端到端跑通
+
+- 产出 `kb/plans/curtain-wall-quote-v1-v1.md`(9.4KB,9 段齐全)
+- 输入:`kb/prds/curtain-wall-quote-v1.md`(PRD)
+- baseline:`kb/sources/2012/changzhou-zhonghang-quote-2708.md`
+- schema_gate 20/20 绿灯
+- 暴露 SKILL 2 缺陷 3 项(已记入下条 commit)
