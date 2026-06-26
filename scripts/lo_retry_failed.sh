@@ -55,23 +55,22 @@ while IFS= read -r line; do
             out="$DST/${rel}.ppt.md"
             tmpdir=$(mktemp -d)
             echo "[$(date '+%H:%M:%S')] LO: $rel"
-            if libreoffice --headless --convert-to pptx --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
-                pptx=$(find "$tmpdir" -name "*.pptx" -type f 2>/dev/null | head -1)
-                if [ -n "$pptx" ]; then
-                    if "$MD_ENV/markitdown" "$pptx" > "$out" 2>/dev/null; then
+            local lo_ok=0
+            for try in 1 2 3; do
+                if libreoffice --headless --convert-to pptx --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
+                    pptx=$(find "$tmpdir" -name "*.pptx" -type f 2>/dev/null | head -1)
+                    if [ -n "$pptx" ] && "$MD_ENV/markitdown" "$pptx" > "$out" 2>/dev/null; then
                         FIXED=$((FIXED + 1))
                         echo "  ✅ $(stat -c%s "$out") B"
-                    else
-                        STILL_FAIL=$((STILL_FAIL + 1))
-                        echo "  ❌ markitdown 失败"
+                        lo_ok=1
+                        break
                     fi
-                else
-                    STILL_FAIL=$((STILL_FAIL + 1))
-                    echo "  ❌ 空 pptx"
                 fi
-            else
+                sleep 2
+            done
+            if [ $lo_ok -eq 0 ]; then
                 STILL_FAIL=$((STILL_FAIL + 1))
-                echo "  ❌ LO 失败"
+                echo "  ❌ 3 次重试失败"
             fi
             rm -rf "$tmpdir"
             ;;
