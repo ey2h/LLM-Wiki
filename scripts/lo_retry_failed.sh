@@ -67,11 +67,35 @@ while IFS= read -r line; do
                     fi
                 else
                     STILL_FAIL=$((STILL_FAIL + 1))
-                    echo "  ❌ 空"
+                    echo "  ❌ 空 pptx"
                 fi
             else
                 STILL_FAIL=$((STILL_FAIL + 1))
                 echo "  ❌ LO 失败"
+            fi
+            rm -rf "$tmpdir"
+            ;;
+        xls)
+            # .xls 大写或异常文件名(双点等)markitdown 不认,LO → xlsx → markitdown
+            out="$DST/${rel}.xls.md"
+            tmpdir=$(mktemp -d)
+            echo "[$(date '+%H:%M:%S')] LO: $rel"
+            local lo_ok=0
+            for try in 1 2 3; do
+                if libreoffice --headless --convert-to xlsx --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
+                    xlsx=$(find "$tmpdir" -name "*.xlsx" -type f 2>/dev/null | head -1)
+                    if [ -n "$xlsx" ] && "$MD_ENV/markitdown" "$xlsx" > "$out" 2>/dev/null; then
+                        FIXED=$((FIXED + 1))
+                        echo "  ✅ $(stat -c%s "$out") B"
+                        lo_ok=1
+                        break
+                    fi
+                fi
+                sleep 2
+            done
+            if [ $lo_ok -eq 0 ]; then
+                STILL_FAIL=$((STILL_FAIL + 1))
+                echo "  ❌ 3 次重试失败"
             fi
             rm -rf "$tmpdir"
             ;;

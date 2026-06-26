@@ -117,6 +117,27 @@ run_one() {
             count_md_fail=$((count_md_fail + 1))
         fi
         rm -rf "$tmpdir"
+    elif [ "$ext_lower" = "xls" ]; then
+        # .xls 大写/双点等异常文件名 markitdown 不认,LO → xlsx → markitdown
+        # (LO 兜底保留 Excel 表格结构)
+        count_md=$((count_md + 1))
+        local tmpdir=$(mktemp -d)
+        local lo_ok=0
+        for try in 1 2 3; do
+            if libreoffice --headless --convert-to xlsx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
+                local xlsx=$(find "$tmpdir" -name "*.xlsx" -type f 2>/dev/null | head -1)
+                if [ -n "$xlsx" ] && "$MD_ENV/markitdown" "$xlsx" > "$dst_file" 2>> "$LOG"; then
+                    lo_ok=1
+                    break
+                fi
+            fi
+            sleep 2
+        done
+        if [ $lo_ok -eq 0 ]; then
+            echo "  ⚠️ LO→xlsx→md 失败 (重试3次): $rel" >> "$LOG"
+            count_md_fail=$((count_md_fail + 1))
+        fi
+        rm -rf "$tmpdir"
     else
         count_md=$((count_md + 1))
         if "$MD_ENV/markitdown" "$src" > "$dst_file" 2>> "$LOG"; then
