@@ -63,12 +63,14 @@ def parse_frontmatter(text: str) -> tuple[dict | None, str]:
 
 
 def collect_pages() -> list[dict]:
-    """收集所有 KB 页(含 frontmatter)"""
+    """收集所有 KB 页(含 frontmatter + 顶层 Schema 文件)
+
+    顶层 Schema (KB-META/CLAUDE/index/log/README) 也包含在内,
+    因为它们的 slug 在断链检测中要被识别为合法目标。
+    """
     pages = []
     for md in sorted(KB_DIR.rglob("*.md")):
         if ".git" in md.parts:
-            continue
-        if md.name in TOP_LEVEL_SCHEMA and len(md.relative_to(KB_DIR).parts) == 1:
             continue
         try:
             text = md.read_text(encoding="utf-8")
@@ -113,7 +115,7 @@ def check_orphan_pages(pages: list[dict]) -> list[str]:
 
     for p in pages:
         slug = p["path"].stem
-        # 顶层文件不视为孤页
+        # 顶层 Schema 文件不视为孤页(KB-META/CLAUDE 等自身就是规范)
         if p["path"].name in TOP_LEVEL_SCHEMA and len(p["path"].relative_to(KB_DIR).parts) == 1:
             continue
         if slug not in referenced:
@@ -126,35 +128,50 @@ def check_dead_links(pages: list[dict]) -> list[str]:
     """断链:[[xxx]] 指向不存在的页面"""
     errors = []
 
-    # 收集所有存在的 slug
+    # 收集所有存在的 slug + 允许链接的"逻辑路径"
     existing_slugs = {p["path"].stem for p in pages}
+
+    # 顶层 Schema 文件 + skills/ 目录视为合法目标(实际是规范本身,不在 KB 产物里)
+    allowed_logical_targets = set()
+    for p in pages:
+        if p["path"].name in TOP_LEVEL_SCHEMA and len(p["path"].relative_to(KB_DIR).parts) == 1:
+            # 多种引用形式都允许:
+            # /KB-META(裸名)/kb/KB-META(含 kb 前缀)/kb/KB-META.md(含扩展名)
+            stem = p["path"].stem  # KB-META
+            allowed_logical_targets.add(f"/{stem}")
+            allowed_logical_targets.add(f"/kb/{stem}")
+            allowed_logical_targets.add(f"/kb/{p['path'].name}")
+    # skills/ 目录下的 SKILL.md 视为合法目标 — /skills/kb-doc-summary
+    skills_root = KB_ROOT / "skills"
+    if skills_root.exists():
+        for skill_dir in skills_root.iterdir():
+            if skill_dir.is_dir():
+                skill_name = skill_dir.name
+                allowed_logical_targets.add(f"/skills/{skill_name}")
 
     for p in pages:
         for ref in extract_cross_refs(p["body"]):
             # 跳过外部链接(http/https)
             if ref.startswith("http://") or ref.startswith("https://"):
                 continue
-            # 跳过 Obsidian 风格的纯名(可能指向还没建的页)
-            # 但 bundle-relative 必须存在
+            # bundle-relative 必须存在
             if ref.startswith("/"):
-                # /sources/2012/xxx → 期望文件 kb/sources/2012/xxx.md
+                # 顶层 Schema / skills 目录豁免
+                if ref in allowed_logical_targets:
+                    continue
                 target_path = KB_DIR / ref.lstrip("/")
-                # target_path 可能是 xxx.md 也可能是 xxx/(无文件)
                 if target_path.is_dir():
                     errors.append(f"DEAD LINK in {p['rel']} — [[{ref}]] 是目录而非文件")
                     continue
-                # 试 .md 后缀
                 if not target_path.exists():
                     md_path = target_path.with_suffix(".md")
                     if not md_path.exists():
                         errors.append(f"DEAD LINK in {p['rel']} — [[{ref}]] 目标不存在")
             else:
-                # 裸 slug / 或 Obsidian 风格,只警告不报错(允许未来建)
-                # 如果存在则 OK,不存在则 WARN
+                # 裸 slug / Obsidian 风格,只警告不报错
                 slug = ref.strip("/").split("/")[-1]
                 if slug not in existing_slugs:
-                    # 这是 WARN,不是 ERROR
-                    pass
+                    pass  # WARN,不算 ERROR
 
     return errors
 
@@ -239,9 +256,13 @@ def main() -> int:
     print("=" * 70)
 
     pages = collect_pages()
-    print(f"\n发现 {len(pages)} 个概念页(含 frontmatter)\n")
+    # 过滤掉顶层 Schema 文件用于报告(它们是规范本身,不是概念页)
+    concept_pages = [p for p in pages if not (
+        p["path"].name in TOP_LEVEL_SCHEMA and len(p["path"].relative_to(KB_DIR).parts) == 1
+    )]
+    print(f"\n发现 {len(concept_pages)} 个概念页(含 frontmatter)+ {len(pages) - len(concept_pages)} 个顶层 Schema\n")
 
-    if not pages:
+    if not concept_pages:
         print("⚠️  KB 为空,无 lint 目标")
         return 0
 
@@ -270,7 +291,7 @@ def main() -> int:
 
     print()
     print("--- 过时检测(>365 天) ---")
-    stale = check_stale_pages(pages)
+    stale = check_stale_pages(concept_pages)
     if stale:
         for w in stale:
             print(f"  ⚠️  {w}")
@@ -280,7 +301,7 @@ def main() -> int:
 
     print()
     print("--- 重复 Source 检测 ---")
-    dup = check_duplicate_sources(pages)
+    dup = check_duplicate_sources(concept_pages)
     if dup:
         for w in dup:
             print(f"  ⚠️  {w}")
@@ -290,7 +311,7 @@ def main() -> int:
 
     print()
     print("--- 空页检测(<200 字符 + 缺 description) ---")
-    empty = check_empty_pages(pages)
+    empty = check_empty_pages(concept_pages)
     if empty:
         for e in empty:
             print(f"  ❌ {e}")
@@ -300,7 +321,7 @@ def main() -> int:
 
     print()
     print("--- type 分布 ---")
-    type_counts, _ = check_type_distribution(pages)
+    type_counts, _ = check_type_distribution(concept_pages)
     if type_counts:
         for t, c in sorted(type_counts.items(), key=lambda x: -x[1]):
             print(f"  {t}: {c}")
@@ -318,7 +339,7 @@ def main() -> int:
         print("=" * 70)
         return 1
     else:
-        print(f"🟢 L1.5 语义 lint:绿灯 — 全部 {len(pages)} 个概念页通过")
+        print(f"🟢 L1.5 语义 lint:绿灯 — 全部 {len(concept_pages)} 个概念页通过")
         print("=" * 70)
         return 0
 

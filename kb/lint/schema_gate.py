@@ -164,13 +164,13 @@ def check_file(path: Path) -> list[str]:
     if isinstance(desc, str) and len(desc) > 200:
         errors.append(f"{rel}: description {len(desc)} 字,超过 200 字上限")
 
-    # 6. tags 3-7 个(列表)
+    # 6. tags 5-9 个(列表)— ai-rd-system 幕墙项目关键词天然多,SKILL 1 试跑发现
     tags = fm.get("tags")
     if tags is not None:
         if not isinstance(tags, list):
             errors.append(f"{rel}: tags 应是 list,实际 {type(tags).__name__}")
-        elif len(tags) < 3 or len(tags) > 7:
-            errors.append(f"{rel}: tags {len(tags)} 个,应在 3-7 个之间")
+        elif len(tags) < 5 or len(tags) > 9:
+            errors.append(f"{rel}: tags {len(tags)} 个,应在 5-9 个之间(幕墙项目天然关键词多,SKILL 1 试跑后调整)")
 
     # 7. created/updated 是 ISO 8601 日期
     for date_field in ["created", "updated"]:
