@@ -191,14 +191,21 @@ kb/                              # 知识库 vault (LLM 维护)
 
 | # | SKILL | 角色 | 输入 | 输出 |
 |---|-------|------|------|------|
-| 1 | `kb-doc-summary` | 文档摘要师 | md 文件 | `kb/sources/<year>/<slug>.md` concept 页 |
+| 1 | `kb-doc-summary` ⭐ | 文档摘要师 | md 文件 | `kb/sources/<year>/<slug>.md` concept 页 |
 | 2 | `kb-tech-solution` | 资深架构师 | PRD | 技术方案 |
 | 3 | `kb-tech-review` | 严格评审员 | 技术方案 | 评审意见 + 修改建议 |
 | 4 | `kb-just-coding` | 编码工程师 | 技术方案 | 代码 + CR 自查清单 |
-| 5 | `kb-pre-test` | 测试工程师 | 技术方案 + PRD | 测试用例 + 回归点 |
+| 5 | `kb-test-pre` | 测试工程师 | 技术方案 + PRD | 测试用例 + 回归点 |
 | 6 | `kb-problem-solve` | 故障排查员 | SLS/log + 现象 | 根因 + 修复方案 |
 | 7 | `kb-architecture-design` | 架构师 | 业务背景 | 架构图 + 模块拆分 |
-| 8 | `kb-qa` | 答疑助手 | 用户问题 | 引用 KB 的答案 |
+| 8 | `kb-just-ask` | 答疑助手 | 用户问题 | 引用 KB 的答案 |
+
+**附加 SKILL**(KB 维护):
+
+| # | SKILL | 用途 |
+|---|-------|------|
+| +1 | `kb-test-fix` | 测试修复(失败用例 → 修代码或修用例) |
+| +1 | `kb-sync` | KB 同步(原始 md 变更 → 更新 concept 页) |
 
 每个 SKILL 都要:
 - 有 frontmatter 触发条件(`description` + `when to use` + `do NOT use for`)
@@ -206,6 +213,19 @@ kb/                              # 知识库 vault (LLM 维护)
 - 有 phase 流程(Phase 0/1/2/...)
 - 有输出前自查清单
 - 有评测指标
+
+**当前 SKILL 编写进度**:
+
+- [x] `kb-doc-summary` v0.1(8.3K)—— Phase 3 commit `e903fb5` 后写
+- [ ] `kb-tech-solution` v0.1
+- [ ] `kb-tech-review` v0.1
+- [ ] `kb-just-coding` v0.1
+- [ ] `kb-test-pre` v0.1
+- [ ] `kb-problem-solve` v0.1
+- [ ] `kb-architecture-design` v0.1
+- [ ] `kb-just-ask` v0.1
+- [ ] `kb-test-fix` v0.1
+- [ ] `kb-sync` v0.1
 
 ---
 
