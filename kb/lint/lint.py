@@ -62,6 +62,19 @@ def parse_frontmatter(text: str) -> tuple[dict | None, str]:
     return fm, m.group(2)
 
 
+def strip_code_blocks(text: str) -> str:
+    """去掉 fenced code block (```...```) 和 inline code (`...`) 内的内容
+
+    用于 lint 提取跨引用时,避免误把代码示例里的 [[xxx]] 当成真实链接。
+    """
+    # 去掉 fenced code blocks (``` 或 ~~~)
+    text = re.sub(r"```[^\n]*\n.*?```", "", text, flags=re.DOTALL)
+    text = re.sub(r"~~~[^\n]*\n.*?~~~", "", text, flags=re.DOTALL)
+    # 去掉 inline code (单行 `...`)
+    text = re.sub(r"`[^`\n]+`", "", text)
+    return text
+
+
 def collect_pages() -> list[dict]:
     """收集所有 KB 页(含 frontmatter + 顶层 Schema 文件)
 
@@ -77,11 +90,14 @@ def collect_pages() -> list[dict]:
         except Exception:
             continue
         fm, body = parse_frontmatter(text)
+        # body 提取跨引用前,先去代码块(避免误判代码示例里的 [[xxx]])
+        body_for_lint = strip_code_blocks(body)
         pages.append({
             "path": md,
             "rel": str(md.relative_to(KB_ROOT)),
             "fm": fm or {},
-            "body": body,
+            "body": body_for_lint,  # 已剥离代码块的版本,用于 lint
+            "body_raw": body,        # 原始版本,保留备用
             "text": text,
         })
     return pages
@@ -148,6 +164,13 @@ def check_dead_links(pages: list[dict]) -> list[str]:
             if skill_dir.is_dir():
                 skill_name = skill_dir.name
                 allowed_logical_targets.add(f"/skills/{skill_name}")
+    # kb/lint/ 下的 .py 脚本视为合法目标 — /kb/lint/schema_gate(指脚本本身)
+    lint_root = KB_DIR / "lint"
+    if lint_root.exists():
+        for f in lint_root.iterdir():
+            if f.is_file() and f.suffix in {".py", ".sh"}:
+                allowed_logical_targets.add(f"/kb/lint/{f.stem}")
+                allowed_logical_targets.add(f"/kb/lint/{f.name}")
 
     for p in pages:
         for ref in extract_cross_refs(p["body"]):
