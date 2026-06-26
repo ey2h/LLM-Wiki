@@ -1,6 +1,11 @@
 ---
 name: kb-doc-summary
 description: Use when enriching the KB by converting raw markdown files (typically from kb-md/) into OKF-compliant Source concept pages — extracts title, description, tags, entities, cross-references, and writes kb/sources/<year>/<slug>.md
+version: 0.1
+status: draft
+created: 2026-06-26
+updated: 2026-06-26
+maintainer: jack (via Hermes)
 ---
 
 # kb-doc-summary — 文档摘要入 KB
