@@ -37,10 +37,23 @@ run_one() {
     local rel="${src#$SRC/}"
     local ext_lower="$(echo "${src##*.}" | tr '[:upper:]' '[:lower:]')"
 
-    local out_suffix="$ext_lower.md"
+    local out_suffix="md"
     [ "$ext_lower" = "txt" ] || [ "$ext_lower" = "log" ] && out_suffix="txt.md"
 
-    local dst_file="$DST/$rel.$out_suffix"
+    # 输出命名规则(2026-06-26 修复):
+    # - 原: RFI.pdf → RFI.pdf.md (重复 .pdf 后缀,丑)
+    # - 新: RFI.pdf → RFI.md (只加 .md)
+    # 唯一性靠目录路径保证(同 dir 同名会冲突,但 NAS 上几乎不出现)
+    # 同名冲突场景: 同 dir 下 RFI.pdf + RFI.doc → 都变 RFI.md,后写覆盖
+    # 当前策略: 后写覆盖(简单可预测);后续可加 -pdf / -doc 后缀
+    local base="$(basename "$src")"        # RFI-WH-CW-185.pdf
+    local base_no_ext="${base%.*}"         # RFI-WH-CW-185
+    local rel_dir="$(dirname "$rel")"      # 浦东嘉里中心保温计算/1-石材
+    local dst_file="$DST/$rel_dir/$base_no_ext.$out_suffix"
+    # 同名冲突检测(同 dir 下不同扩展名 → 都变 base.md → 后写覆盖,记录警告)
+    if [ -f "$dst_file" ]; then
+        echo "  ⚠️ 同名覆盖: $dst_file 已存在" >> "$LOG"
+    fi
     mkdir -p "$(dirname "$dst_file")"
 
     local start=$(date +%s)
