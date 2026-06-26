@@ -42,6 +42,7 @@ VALID_TYPES = {
     "Query",        # 问答存档
     "Playbook",     # 流程性 SOP
     "Plan",         # 设计方案
+    "PRD",          # 产品需求文档(Palantir 本体论风格)
 }
 
 # KB-META §1.4 type → 目录映射(只校验明确映射的 type,未列出的 type 跳过目录校验)
@@ -55,6 +56,7 @@ TYPE_TO_DIR = {
     "Query":     "kb/queries",
     "Playbook":  "kb/playbooks",
     "Plan":      "kb/plans",
+    "PRD":       "kb/prds",
 }
 
 # 顶层 Schema 文件(不需要目录映射,允许位于 kb/ 根)
