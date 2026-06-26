@@ -1,4 +1,4 @@
-# 项目状态 — 2026-06-25
+# 项目状态 — 2026-06-26
 
 > 每个 commit 后回写。反映"现在真实能跑什么"。
 
@@ -35,31 +35,45 @@
 - Wayland mutter + SSH 进程无法做真实点击(portal/permission/ydotool 三重卡)
 - **全清掉**:模型 / server / ydotool / xdotool / grim / wtype / portal-gnome / dbus-gi / 文档
 
-### Phase 1.7 — MinerU 3.3.1 → 3.4.0 升级 + 文档转换试水 (uncommitted)
-- **升级**:`pip install -U mineru[all]`(清华镜像)3.3.1 → 3.4.0(2026-06-18 最新)
+### Phase 1.7 — MinerU 3.4.0 + NAS 文档全量转换 (commits `18a2561` → `373511b` → `bb2d8a7`)
+- **升级**:`pip install -U mineru[all]`(清华镜像)3.3.1 → 3.4.0
 - **OCR 升级到 PP-OCRv6**(准确率 +11%,速度 +100%)
-- **NAS 数据接入改走 NFS**(取代 SMB):
-  - `sudo mount -t nfs -o vers=3,nolock,soft 192.168.1.101:/fs/1000/nfs /mnt/nfs`
-  - DSM 上 NFS export `项目存档` + `LLM-WIKI` 两个 share
-  - SMB gvfs 备选还在(同 IP 同 share,不走 NFS 时用)
-- **扫描件判别**:`/tmp/pdf_is_scanned.py` 中间 3 页字符数 avg < 30 → 扫描件
-- **PDF 处理双路径**:
-  - 非扫描 PDF → `pdftotext -layout`(系统命令,快,中英保版式)
-  - 扫描件 PDF → mineru GPU(实测 70s/19 页,7G 显存,含表格 + LaTeX + OCR)
-  - 原因:markitdown PDF 后端 pdfminer 抽不出中英文混排(SHNM PDF 只能出 1 byte)
-- **PDF 以外一律 markitdown**:`docx/xlsx/xls/pptx/ppt/doc`
-  - `.doc` 旧 binary 格式 markitdown 不认(88 个未处理,可能需要 antiword/catdoc/pandoc 兜底)
-- **小批量试跑 2012**(10 文件):
-  - 9 成功:`docx/xlsx/xls/pptx/pdf(非扫描)` 全过
-  - 1 失败:`.doc` 旧 binary 格式 markitdown 不认(88 个未处理)
-  - 1 跳过:`RFI PDF` 扫描件(用 pdftotext 失败,改走 mineru GPU 已验证)
-- **2012 全量 696 文件未跑**(计划后台挂起 30-60 分钟)
-- **GPU A3000 12G 占用**:
-  - 静态 ~370 MiB
-  - mineru vlm-engine 峰值 ~7 GB(2.15G vlm + 773M unimernet + OCR models)
+- **NAS 数据接入走 NFS**(`/mnt/nfs/{项目存档,LLM-WIKI}`,DSM export 双 share)
+- **扫描件判别**:`scripts/pdf_is_scanned.py` 中间 3 页 avg char < 30 → 扫描件
+
+#### 文档转换策略(固化)
+| 格式 | 路径 | 原因 |
+|------|------|------|
+| `.pdf` 非扫描 | `pdftotext -layout` | 系统命令,中英保版式,快 |
+| `.pdf` 扫描件 | mineru GPU `-m auto` | 含表格/LaTeX/OCR,70s/19页,7G 显存 |
+| `.docx/.xlsx/.xls/.pptx` | markitdown | 直接吃 |
+| `.doc/.ppt`(旧 binary) | LibreOffice headless → docx/pptx → markitdown | markitdown 0.1.6 (PyPI 最新 May 2026) 不支持 .doc/.ppt,**LO 走 docx 中转保留 Word 结构**(不能直接 txt 丢格式) |
+| `.txt/.log` | `cp` | 直接当 md |
+| `.dwg/.dxf/.bak/.JPG/.ARW/.CR2/.THM/.rar/.zip` 等 | 跳过 | 不是文本 |
+
+#### 路径 bug 修复(commit `18a2561`)
+- 原 `ls -laR | awk '{print $NF}'` 拼接相对路径会丢子目录前缀,**子目录文件 95% 路径错**
+- 改用 `cd $SRC && find . -type f -not -path './@eaDir/*'` → 真实相对路径
+- 跳过 Synology thumbnail 目录 `@eaDir/` 和 macOS `.DS_Store`
+
+#### LibreOffice 兜底(commits `373511b` → `bb2d8a7`)
+- markitdown converters 目录**只有 `_docx/_pptx`,没有 `_doc/_ppt`** —— PyPI 0.1.6 已最新
+- **LO 对 NFS 中文路径偶发 `Error: source file could not be loaded`** —— 加 3 次 retry + sleep 2
+- `scripts/lo_retry_failed.sh`:扫 `convert_*.log` 里 `markitdown failed` 行,**只对 .doc/.ppt 重试用 LO 处理**
+
+#### 全量进度(2026-06-26 后台跑)
+- 源:`/mnt/nfs/项目存档/2012/`,目标:`/mnt/nfs/LLM-WIKI/raw/2012/`
+- 2012 共 2869 文件,**可转换 696**(`pdf:336 + doc:88 + docx:38 + xls:48 + xlsx:127 + pptx:25 + ppt:. + txt/log:23`)
+- 跳过 ~2173(dwg/dxf/JPG/ARW/CR2/THM/rar/zip/tmp/@eaDir)
+- 后台跑旧版脚本(无 LO),已扫 280+ 个,等跑完跑 `lo_retry_failed.sh` 补 .doc/.ppt
+- 估算:markitdown 文档类 1-3s/个,mineru 扫描件 60-120s/个,总 1-2 小时
+
+#### GPU A3000 12G 占用
+- 静态 ~370 MiB
+- mineru vlm-engine 峰值 ~7 GB(2.15G vlm + 773M unimernet + OCR models)
 
 ### Phase 2 — NAS 数据接入 → **走 NFS** (commit `fea3314`)
-- ~~NFS 路线~~ 弃 → **改 NFS 又改回**(DSM 端 NFS export 已加)
+- ~~SMB 路线~~ 试过 → **改 NFS**(DSM 端 NFS export 已加)
 - **NFS 挂载**:`192.168.1.101:/fs/1000/nfs` → `/mnt/nfs`
   - 包含两个 share:`项目存档/`(历史归档)+ `LLM-WIKI/`(知识库)
 - **SMB gvfs 备选**:`/run/user/1000/gvfs/smb-share:server=z720.local,share=jack%20共享给我/`
@@ -72,18 +86,27 @@
 - 8 个 SKILL 目录:`skills/` 下空骨架
 - 评测闭环未设计
 - **Phase 2 现在通了,可以从 z720-archives / z720-projects 直接抽取文档进 kb-md/**
+- **2012 全量跑完后**,要做:
+  - 抽 2013/2014/.../2026 各年度(SMB 路径相同策略)
+  - 抽 Projects/(BIM/C#/EY2H/JJS/MBA/Maijun 新项目,2014+)
+  - 整理 kb-md/ 抽进 kb/ 知识库
 
 ## 🔧 待做小项
-- [ ] `docs/INDEX.md` 加 serve-gemma 全局脚本 + refresh_smb_mount.sh 的引用
-- [ ] `README.md` 快速开始加 SMB 接入说明
+- [ ] `docs/INDEX.md` 加 serve-gemma 全局脚本 + refresh_smb_mount.sh + convert_year_2012.sh 引用
+- [ ] `README.md` 快速开始加 NFS 接入说明
 - [ ] `serve-gemma swap` 子命令(E4B/12B 一键切换)
-- [ ] `convert.sh` 加 `--from z720-archives` 入口,直接转 NAS 文档
-- [ ] 测一下 SMB 链路在 mineru + markitdown 下能不能直接读(性能/编码问题)
+- [ ] `convert_year.sh <year>` 通用脚本(支持任意年份,2012 是特例)
+- [ ] GPU 利用率优化:mineru 串行跑扫描件是瓶颈,可考虑并行 2 个 PDF(显存吃满)
+- [ ] 阈值优化:`avg < 30` 偏宽,有些空 PDF 也被判非扫描,降阈值到 10 可补救
 
 ## 📦 当前 Git
 
 ```
-main: 2f56ad5  (cleanup: 撤掉 Holo3.1 路线)
+main: bb2d8a7  (fix: .doc 走 docx + LO retry)
+       373511b  (feat: LibreOffice headless 兜底)
+       18a2561  (fix: find -printf 修复路径 bug)
+       fea3314  (Phase 2 NFS)
+       2f56ad5  (cleanup: 撤掉 Holo3.1 路线)
        c75511b  (docs: Holo3.1-4B 实测报告 — 已删除)
        c582840  (feat: Phase 1.5 Gemma 4 + Hermes fallback)
        6fe8a8e  (Phase 1 MinerU GPU)
@@ -93,9 +116,14 @@ main: 2f56ad5  (cleanup: 撤掉 Holo3.1 路线)
 
 | 资源 | 状态 |
 |---|---|
-| GPU 显存 | 392M / 12.3G(完全空闲) |
+| GPU 显存 | 392M 静态,~7GB mineru 峰值(12.3G 总) |
 | E4B server | ❌ 停(`serve-gemma e4b` 启动) |
 | 12B server | ❌ 停(显存装不下 64K,平时不用) |
 | Hermes 主模型 | MiniMax-M3(微信通道默认) |
-| NAS SMB 挂载 | ✅ z720.local(需保持文件管理器登录状态) |
+| NAS NFS 挂载 | ✅ `/mnt/nfs/{项目存档,LLM-WIKI}` |
+| NAS SMB 备选 | ✅ `/run/user/1000/gvfs/smb-share:z720.local/` |
 | fallback provider | gemma4-e4b(需手动起 server) |
+| mineru 版本 | 3.4.0(GPU) |
+| markitdown 版本 | 0.1.6(PyPI 最新) |
+| LibreOffice | 26.2.3.2(`libreoffice --headless` headless 模式可用) |
+| 后台进程 | `convert_year_2012.sh`(pid 30934)预计 1-2 小时跑完 |
