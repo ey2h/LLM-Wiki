@@ -80,3 +80,4 @@ temp/
 eval/runs/
 eval/results/
 *.eval.json
+scripts/convert_archive_double_ext.v*.sh

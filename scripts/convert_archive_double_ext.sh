@@ -31,6 +31,34 @@ LOG_DIR="/home/jack/projects/ai-rd-system/toolchain/logs"
 MD_ENV="/home/jack/projects/ai-rd-system/toolchain/envs/markitdown/bin"
 EXTRACT_SCRIPT="/home/jack/LLM-Wiki/scripts/extract_md_images.py"  # 2026-06-27:拆 base64 → images/ + 改 md 引用
 
+# 2026-06-27 v11:扫描 PDF 走 GPU(mineru vlm-engine 独占),其它文件并发后台跑
+# 之前 v10 是单线程,扫描 PDF 占满 30s/张 时,office/text 被卡死
+# 设计:
+#   - 扫描 PDF (avg < 30):同步跑,独占 GPU
+#   - 非扫描 PDF + 所有 Office + txt/log:后台并发(max N worker)
+#   - 每 batch 收 N 个非扫描任务 + 0-N 个扫描任务,扫描在 batch 内同步跑完后 wait 全部后台
+MAX_PARALLEL="${MAX_PARALLEL:-4}"     # v11 新增:非扫描文件并发 worker 数
+BATCH_SCAN_LIMIT="${BATCH_SCAN_LIMIT:-3}"  # v11 新增:每个 batch 内最大扫描文件数
+SCAN_CACHE_DIR="${LOG_DIR}/.scan_cache"     # v11 新增:扫描判断 cache(避免每批重复探测)
+mkdir -p "$SCAN_CACHE_DIR"
+export SCAN_CACHE_DIR
+
+# v11 新增:快速判断 PDF 是否扫描件(带 cache)
+is_scanned_quick() {
+    local pdf="$1"
+    local rel_hash=$(echo "$pdf" | md5sum | cut -c1-16)
+    local cache_file="$SCAN_CACHE_DIR/$rel_hash"
+    if [ -f "$cache_file" ]; then
+        cat "$cache_file"
+        return
+    fi
+    local probe=$(python3 "$PY_SCANNER" "$pdf" 30 2>&1)
+    local avg=$(echo "$probe" | python3 -c "import sys,json;d=json.load(sys.stdin);print(int(d['avg_chars']))" 2>/dev/null || echo "0")
+    local result=$([ "$avg" -lt 30 ] && echo "1" || echo "0")
+    echo "$avg" > "$cache_file"
+    echo "$result"
+}
+
 # 2026-06-27 markitdown --keep-data-uris 拆图:把 base64 内嵌图拆到 images/,md 引用改相对路径
 # 跟扫描 PDF mineru 产物结构一致(<base>.ext.md.d/<base>.ext.md + images/)
 extract_md_images() {
@@ -281,6 +309,61 @@ convert_year() {
     count_md_fail=0
     count_txt=0
 
+    # v11 新增:后台任务队列 + pid 数组
+    bg_queue=()
+    bg_pids=()
+
+    # v11 新增:启动后台 worker 函数(把任务加入队列,达到 MAX_PARALLEL 触发 wait)
+    flush_bg_queue() {
+        if [ ${#bg_queue[@]} -eq 0 ]; then return 0; fi
+        # v11 bugfix:用 temp file 收集子 shell 的 count_total/count_skip 等更新
+        # 子 shell 修改变量不影响主 shell,所以用 tmpfile 做 IPC
+        local tmp_counts=$(mktemp)
+        for q in "${bg_queue[@]}"; do
+            (
+                # 子 shell:跑 run_one,然后把本地的 count_total/count_skip/count_* 增量写 tmpfile
+                local _before_total=$count_total
+                local _before_skip=$count_skip
+                local _before_skip_exists=$count_skip_exists
+                local _before_pdf_text=$count_pdf_text
+                local _before_pdf_scanned=$count_pdf_scanned
+                local _before_pdf_scanned_done=$count_pdf_scanned_done
+                local _before_md=$count_md
+                local _before_md_fail=$count_md_fail
+                local _before_txt=$count_txt
+                run_one "$q" >> "$LOG" 2>&1
+                local _delta=$((count_total - _before_total))
+                local _dskip=$((count_skip - _before_skip))
+                local _dskip_exists=$((count_skip_exists - _before_skip_exists))
+                local _dpdf_text=$((count_pdf_text - _before_pdf_text))
+                local _dpdf_scanned=$((count_pdf_scanned - _before_pdf_scanned))
+                local _dpdf_scanned_done=$((count_pdf_scanned_done - _before_pdf_scanned_done))
+                local _dmd=$((count_md - _before_md))
+                local _dmd_fail=$((count_md_fail - _before_md_fail))
+                local _dtxt=$((count_txt - _before_txt))
+                echo "$_delta $_dskip $_dskip_exists $_dpdf_text $_dpdf_scanned $_dpdf_scanned_done $_dmd $_dmd_fail $_dtxt" >> "$tmp_counts"
+            ) &
+            bg_pids+=($!)
+        done
+        bg_queue=()
+        # 等所有后台 worker 完成
+        for pid in "${bg_pids[@]}"; do wait "$pid" 2>/dev/null; done
+        bg_pids=()
+        # 累加 tmpfile 里的 delta 到主 shell 计数
+        while read -r _d _ds _dse _dpt _dps _dpsd _dm _dmf _dt; do
+            count_total=$((count_total + _d))
+            count_skip=$((count_skip + _ds))
+            count_skip_exists=$((count_skip_exists + _dse))
+            count_pdf_text=$((count_pdf_text + _dpt))
+            count_pdf_scanned=$((count_pdf_scanned + _dps))
+            count_pdf_scanned_done=$((count_pdf_scanned_done + _dpsd))
+            count_md=$((count_md + _dm))
+            count_md_fail=$((count_md_fail + _dmf))
+            count_txt=$((count_txt + _dt))
+        done < "$tmp_counts"
+        rm -f "$tmp_counts"
+    }
+
     while IFS= read -r rel; do
         [ -z "$rel" ] && continue
         case "$rel" in
@@ -312,14 +395,40 @@ convert_year() {
 
         # 只处理文档类型
         case "$ext_lower" in
-            pdf|docx|doc|xlsx|xls|pptx|ppt|txt|log)
-                run_one "$src"
+            pdf)
+                # v11 新增:判断扫描 vs 非扫描,扫描同步跑(独占 GPU),非扫描并发
+                local scan=$(is_scanned_quick "$src")
+                if [ "$scan" = "1" ]; then
+                    # 扫描 PDF:同步跑(独占 GPU)
+                    # 收一波:当前 batch 后台 worker 满了就先 wait
+                    if [ ${#bg_pids[@]} -ge $MAX_PARALLEL ]; then
+                        for pid in "${bg_pids[@]}"; do wait "$pid" 2>/dev/null; done
+                        bg_pids=()
+                    fi
+                    run_one "$src"
+                else
+                    # 非扫描 PDF:扔后台(并发)
+                    bg_queue+=("$src")
+                fi
+                ;;
+            docx|doc|xlsx|xls|pptx|ppt|txt|log)
+                # v11 新增:非扫描文档扔后台(并发)
+                bg_queue+=("$src")
                 ;;
             *)
                 count_skip=$((count_skip + 1))
+                continue
                 ;;
         esac
+
+        # v11 新增:后台队列达到阈值就 flush
+        if [ ${#bg_queue[@]} -ge $MAX_PARALLEL ]; then
+            flush_bg_queue
+        fi
     done < <(cd "$SRC" && find . -type f -not -path './@eaDir/*' 2>/dev/null | sed 's|^\./||')
+
+    # v11 新增:文件末尾 flush 剩余后台任务
+    flush_bg_queue
 
     echo ""
     echo "=== $y 完成 ==="
