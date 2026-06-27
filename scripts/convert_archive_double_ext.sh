@@ -21,11 +21,12 @@
 set -e
 
 # OOM 防护(2026-06-27):限制单进程虚拟内存,避免 OOM killer 杀 daemon
-# mineru 跑 PDF 时 PyMuPDF + PIL + numpy 峰值 ~2GB;vllm serve 不在这跑
-# 4GB 是经验值,实测 2026-06-27 mineru 子进程 peak ~1.9GB
-ulimit -v 4194304  # 4GB 虚拟内存
-ulimit -m 4194304  # 4GB 驻留内存
-echo "  [OOM-GUARD] ulimit -v 4G active"
+# mineru 跑扫描 PDF 时 PyMuPDF + pdfium + PIL + numpy 峰值 ~4-6GB(v6 segfault 根因 = ulimit -m 4G 卡死大扫描 PDF native heap)
+# 实测 5.5MB/10 页扫描 PDF 渲染时,驻留峰值可冲到 4-5GB → 触发 OOM kill(4-5s exit=139)
+# 2026-06-27 改为:虚拟不限(8G),驻留 8G;机器 15G,留 5G 给 vllm(10.5G)+LO
+ulimit -v 8388608  # 8GB 虚拟内存
+ulimit -m 8388608  # 8GB 驻留内存
+echo "  [OOM-GUARD] ulimit -m 8G active (修复 v6 扫描 PDF OOM-killed segfault)"
 
 # OOM 防护(2026-06-27):检查系统内存压力,>=80% 跳过该文件
 check_memory_pressure() {
