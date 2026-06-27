@@ -20,6 +20,22 @@
 #   bash convert_archive_double_ext.sh <year> --dry-run  # 演练
 set -e
 
+# OOM 防护(2026-06-27):限制单进程内存,避免 OOM killer 杀 daemon
+ulimit -v 4194304  # 4GB 虚拟内存
+ulimit -m 4194304  # 4GB 驻留内存
+
+# OOM 防护(2026-06-27):检查系统内存压力,>=80% 跳过该文件
+check_memory_pressure() {
+    local mem_total=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    local mem_avail=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    local mem_used_pct=$(( (mem_total - mem_avail) * 100 / mem_total ))
+    if [ "$mem_used_pct" -ge 80 ]; then
+        echo "  ⚠️ memory_pressure: ${mem_used_pct}% used (>=80%)" >> "$LOG"
+        return 0  # 0 = 有压力,跳过
+    fi
+    return 1  # 1 = 无压力,继续
+}
+
 NFS="/mnt/nfs"
 SRC_BASE="$NFS/项目存档"
 DST_BASE="$NFS/LLM-WIKI/raw"
@@ -46,6 +62,17 @@ run_one() {
     local src="$1"
     local rel="${src#$SRC/}"
     local ext_lower="$(echo "${src##*.}" | tr '[:upper:]' '[:lower:]')"
+
+    # dry-run 模式:只打印,不真转
+    if [ "${DRY_RUN:-0}" = "1" ]; then
+        echo "  [DRY] would process: $rel (ext=$ext_lower)"
+        count_total=$((count_total + 1))
+        return
+    fi
+
+    # OOM 防护(2026-06-27):每文件之间 sleep 1,给系统喘息
+    sleep 1
+
 
     # 输出命名规则(2026-06-27 新版):原名.ext.md
     # 例:RFI.pdf → RFI.pdf.md;2月29日初稿.docx → 2月29日初稿.docx.md
@@ -95,11 +122,18 @@ run_one() {
         cp "$src" "$dst_file"
         count_txt=$((count_txt + 1))
     elif [ "$ext_lower" = "doc" ]; then
+        if check_memory_pressure; then
+            echo "  ⚠️ memory_pressure_skip (.doc): $rel" >> "$LOG"
+            count_md_fail=$((count_md_fail + 1))
+            sleep 30
+            return
+        fi
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
         local lo_ok=0
         for try in 1 2 3; do
-            if libreoffice --headless --convert-to docx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
+            # 加 --norestore --nologo --nolockcheck + timeout 120s(2026-06-27 OOM 防护)
+            if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to docx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
                 local docx=$(find "$tmpdir" -name "*.docx" -type f 2>/dev/null | head -1)
                 if [ -n "$docx" ]; then
                     if "$MD_ENV/markitdown" "$docx" > "$dst_file" 2>> "$LOG"; then
@@ -116,9 +150,17 @@ run_one() {
         fi
         rm -rf "$tmpdir"
     elif [ "$ext_lower" = "ppt" ]; then
+        # OOM 防护(2026-06-27):跳过当前 .ppt 文件,等内存恢复后再转
+        if check_memory_pressure; then
+            echo "  ⚠️ memory_pressure_skip (.ppt): $rel" >> "$LOG"
+            count_md_fail=$((count_md_fail + 1))
+            sleep 30
+            return
+        fi
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
-        if libreoffice --headless --convert-to pptx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
+        # 加 --norestore --nologo --nolockcheck 减少 LO 自身内存(2026-06-27)
+        if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to pptx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
             local pptx=$(find "$tmpdir" -name "*.pptx" -type f 2>/dev/null | head -1)
             if [ -n "$pptx" ]; then
                 "$MD_ENV/markitdown" "$pptx" > "$dst_file" 2>> "$LOG" || {
@@ -135,11 +177,18 @@ run_one() {
         fi
         rm -rf "$tmpdir"
     elif [ "$ext_lower" = "xls" ]; then
+        if check_memory_pressure; then
+            echo "  ⚠️ memory_pressure_skip (.xls): $rel" >> "$LOG"
+            count_md_fail=$((count_md_fail + 1))
+            sleep 30
+            return
+        fi
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
         local lo_ok=0
         for try in 1 2 3; do
-            if libreoffice --headless --convert-to xlsx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
+            # 加 --norestore --nologo --nolockcheck + timeout 120s(2026-06-27 OOM 防护)
+            if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to xlsx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
                 local xlsx=$(find "$tmpdir" -name "*.xlsx" -type f 2>/dev/null | head -1)
                 if [ -n "$xlsx" ] && "$MD_ENV/markitdown" "$xlsx" > "$dst_file" 2>> "$LOG"; then
                     lo_ok=1
@@ -256,7 +305,17 @@ convert_year() {
 }
 
 # 主入口
-case "${1:-}" in
+# 解析参数:支持 <year|all> [--dry-run]
+YEAR_ARG=""
+DRY_RUN=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        *) YEAR_ARG="$arg" ;;
+    esac
+done
+
+case "${YEAR_ARG:-}" in
     all)
         for y in 2013 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 2025 2026; do
             convert_year "$y"
@@ -266,12 +325,13 @@ case "${1:-}" in
         done
         ;;
     *)
-        if [ -z "${1:-}" ]; then
-            echo "用法: $0 <year|all>"
-            echo "  <year>: 2013-2026 任一年份"
-            echo "  all:    跑 2013-2026"
+        if [ -z "${YEAR_ARG:-}" ]; then
+            echo "用法: $0 <year|all> [--dry-run]"
+            echo "  <year>:    2013-2026 任一年份"
+            echo "  all:       跑 2013-2026"
+            echo "  --dry-run: 演练(不写文件)"
             exit 1
         fi
-        convert_year "$1"
+        convert_year "$YEAR_ARG"
         ;;
 esac
