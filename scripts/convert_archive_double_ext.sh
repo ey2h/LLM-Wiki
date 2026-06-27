@@ -123,9 +123,17 @@ run_one() {
             #   --api-url : mineru-api base URL (8002)
             #   -u/--url : OpenAI server URL (vllm 8000),通过 task body 传到 mineru-api
             local tmpdir=$(mktemp -d)
+            # 2026-06-27 v6 修复 segfault:中文路径 + 老 PDF 内部 P:\4.0 Projects\...
+            # 让 pdfium/ghostscript 在 ASCII 路径上跑;在 tmpdir 里建符号链接也行
+            local safe_src="$tmpdir/input.pdf"
+            if ! cp "$src" "$safe_src" 2>>"$LOG"; then
+                echo "  ⚠️ cp to ascii tmp failed: $rel" >> "$LOG"
+                rm -rf "$tmpdir"
+                return
+            fi
             # 加 UNSTRUCTURED_DISABLE_TELEMETRY + VLLM_USE_V1 + TMPDIR(2026-06-27 修复 telemetry 卡顿)
             if env UNSTRUCTURED_DISABLE_TELEMETRY=1 VLLM_USE_V1=1 TMPDIR=/home/jack/tmp \
-                timeout 180 "$MN_ENV/mineru" -p "$src" -o "$tmpdir" \
+                timeout 180 "$MN_ENV/mineru" -p "$safe_src" -o "$tmpdir" \
                 -b vlm-http-client \
                 --api-url http://127.0.0.1:8002 \
                 -u http://127.0.0.1:8000/v1 \
