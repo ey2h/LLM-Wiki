@@ -97,11 +97,13 @@ run_one() {
     local start=$(date +%s)
 
     if [ "$ext_lower" = "pdf" ]; then
-        # PDF CAD 图纸跳过(2026-06-27 用户要求):命名 S-XX-XX-XX.pdf / S-0-L9-XX 等结构图
+        # PDF CAD 图纸跳过(2026-06-27 用户要求)
+        # 命名模式: S-XX-XX-XX.pdf (结构图) / S-XX-L9-XX.pdf / CW-AXX-NN.pdf (幕墙图)
         # 这些是 CAD 输出 PDF,内容是图纸非文本,对 KB 无用
-        # 匹配模式:S- 开头 + 至少 2 段短码(数字或字母)
         local base_no_ext="${base%.pdf}"
-        if echo "$base_no_ext" | grep -qE '^S(-[A-Za-z0-9]+){2,}'; then
+        # S- 开头(结构图)+ 至少 2 段短码(数字或字母)
+        # CW- 开头(幕墙图 Curtain Wall)
+        if echo "$base_no_ext" | grep -qE '^(S(-[A-Za-z0-9]+){2,}|CW-[A-Za-z0-9]+-[0-9]+)'; then
             count_skip=$((count_skip + 1))
             echo "  [SKIP-CAD-PDF] $rel" >> "$LOG"
             return
@@ -111,12 +113,23 @@ run_one() {
         if [ "$avg" -lt 30 ]; then
             count_pdf_scanned=$((count_pdf_scanned + 1))
             echo "[SCAN avg=$avg] $rel"
-            # 2026-06-27 v3 改用反代 8001(8000 vllm 原生 /health 返回空,导致 mineru JSONDecodeError)
-            # 架构:vllm serve :8000 + 反代 :8001(拦截 /health 返回 mineru 期望 JSON)
+            # 2026-06-27 v5:改用 mineru-api 长跑(8002)+ vllm 长跑(8000)
+            # mineru 跑 扫描 PDF 必走 /tasks 协议,只有 mineru-api/mineru-router 实现
+            # 架构:
+            #   mineru CLI → mineru-api :8002 (实现 FastAPI /tasks 协议)
+            #                  ↓
+            #                 vllm :8000 (OpenAI 协议,提供 VLM 模型)
+            # CLI 参数:
+            #   --api-url : mineru-api base URL (8002)
+            #   -u/--url : OpenAI server URL (vllm 8000),通过 task body 传到 mineru-api
             local tmpdir=$(mktemp -d)
             # 加 UNSTRUCTURED_DISABLE_TELEMETRY + VLLM_USE_V1 + TMPDIR(2026-06-27 修复 telemetry 卡顿)
             if env UNSTRUCTURED_DISABLE_TELEMETRY=1 VLLM_USE_V1=1 TMPDIR=/home/jack/tmp \
-                timeout 180 "$MN_ENV/mineru" -p "$src" -o "$tmpdir" -b vlm-http-client --api-url http://127.0.0.1:8001 >> "$LOG" 2>&1; then
+                timeout 180 "$MN_ENV/mineru" -p "$src" -o "$tmpdir" \
+                -b vlm-http-client \
+                --api-url http://127.0.0.1:8002 \
+                -u http://127.0.0.1:8000/v1 \
+                >> "$LOG" 2>&1; then
                 local found=$(find "$tmpdir" -name "*.md" -type f 2>/dev/null | head -1)
                 if [ -n "$found" ]; then
                     cp "$found" "$dst_file"
