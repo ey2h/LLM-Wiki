@@ -467,33 +467,54 @@ convert_year() {
 }
 
 # 主入口
-# 解析参数:支持 <year|all> [--dry-run]
-YEAR_ARG=""
+# 解析参数:支持 <year> [<year_end>] [--dry-run]
+#   <year>:       单年 (e.g. 2026)
+#   <y1> <y2>:    范围 (e.g. 2012 2025 → 跑 2012,2013,...,2025)
+#   all:          跑 2013-2026(2012 走 convert_year_2012.sh 旧路径)
+#   --dry-run:    演练
+YEAR_START=""
+YEAR_END=""
 DRY_RUN=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
-        *) YEAR_ARG="$arg" ;;
+        all) YEAR_START="all" ;;
+        *)
+            if [ -z "$YEAR_START" ]; then
+                YEAR_START="$arg"
+            elif [ -z "$YEAR_END" ]; then
+                YEAR_END="$arg"
+            fi
+            ;;
     esac
 done
 
-case "${YEAR_ARG:-}" in
-    all)
-        for y in 2013 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 2025 2026; do
-            convert_year "$y"
-            echo ""
-            echo "==============================================="
-            echo ""
-        done
-        ;;
-    *)
-        if [ -z "${YEAR_ARG:-}" ]; then
-            echo "用法: $0 <year|all> [--dry-run]"
-            echo "  <year>:    2013-2026 任一年份"
-            echo "  all:       跑 2013-2026"
-            echo "  --dry-run: 演练(不写文件)"
-            exit 1
-        fi
-        convert_year "$YEAR_ARG"
-        ;;
-esac
+# 范围模式 vs 单年/all
+if [ "$YEAR_START" = "all" ]; then
+    # all 模式:跑 2013-2026(2012 之前已用 convert_year_2012.sh 转完,不在此覆盖)
+    for y in 2013 2014 2015 2016 2017 2018 2019 2020 2021 2022 2023 2024 2025 2026; do
+        convert_year "$y"
+        echo ""
+        echo "==============================================="
+        echo ""
+    done
+elif [ -n "$YEAR_END" ] && [ "$YEAR_START" != "$YEAR_END" ]; then
+    # 范围模式:2012 2025 → 2012..2025
+    echo "=== 范围模式: $YEAR_START..$YEAR_END ==="
+    for y in $(seq "$YEAR_START" "$YEAR_END"); do
+        convert_year "$y"
+        echo ""
+        echo "==============================================="
+        echo ""
+    done
+elif [ -n "$YEAR_START" ]; then
+    # 单年模式
+    convert_year "$YEAR_START"
+else
+    echo "用法: $0 <year> [<year_end>] [--dry-run]"
+    echo "  <year>:       单年 (e.g. 2026)"
+    echo "  <y1> <y2>:    范围 (e.g. 2012 2025 → 跑 2012..2025)"
+    echo "  all:          跑 2013-2026"
+    echo "  --dry-run:    演练(不写文件)"
+    exit 1
+fi
