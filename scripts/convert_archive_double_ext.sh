@@ -45,6 +45,15 @@ SRC_BASE="$NFS/项目存档"
 DST_BASE="$NFS/LLM-WIKI/raw"
 LOG_DIR="/home/jack/projects/ai-rd-system/toolchain/logs"
 MD_ENV="/home/jack/projects/ai-rd-system/toolchain/envs/markitdown/bin"
+EXTRACT_SCRIPT="$ROOT/scripts/extract_md_images.py"  # 2026-06-27:拆 base64 → images/ + 改 md 引用
+
+# 2026-06-27 markitdown --keep-data-uris 拆图:把 base64 内嵌图拆到 images/,md 引用改相对路径
+# 跟扫描 PDF mineru 产物结构一致(<base>.ext.md.d/<base>.ext.md + images/)
+extract_md_images() {
+    local md_file="$1"
+    [ -f "$md_file" ] || return 0
+    python3 "$EXTRACT_SCRIPT" "$md_file" 2>>"$LOG" || true
+}
 MN_ENV="/home/jack/projects/ai-rd-system/toolchain/envs/mineru/bin"
 PROJ_ROOT="/home/jack/projects/ai-rd-system"
 PY_SCANNER="$PROJ_ROOT/scripts/pdf_is_scanned.py"
@@ -132,12 +141,15 @@ run_one() {
                 rm -rf "$tmpdir"
                 return
             fi
-            # 加 UNSTRUCTURED_DISABLE_TELEMETRY + VLLM_USE_V1 + TMPDIR(2026-06-27 修复 telemetry 卡顿)
-            if env UNSTRUCTURED_DISABLE_TELEMETRY=1 VLLM_USE_V1=1 TMPDIR=/home/jack/tmp \
-                timeout 180 "$MN_ENV/mineru" -p "$safe_src" -o "$tmpdir" \
-                -b vlm-http-client \
-                --api-url http://127.0.0.1:8002 \
-                -u http://127.0.0.1:8000/v1 \
+            # 2026-06-27 v8:切回 vlm-engine 本地 GPU(commit 6fe8a8e 成功路径)
+            # vlm-http-client 需要 mineru-api+vllm 8000/8002 协同,显存争抢 → torch CUDA OOM → 子进程 exit=139
+            # vlm-engine:mineru 自己加载模型直接 GPU 推理,无 HTTP 链路,显存只占一份
+            # 需求:CUDA_HOME + HF_ENDPOINT(国内镜像)+ tmpdir (commit 6fe8a8e)
+            # 缺:telemetry 关闭(commit 6fe8a8e 修过)
+            if env UNSTRUCTURED_DISABLE_TELEMETRY=1 TMPDIR=/home/jack/tmp \
+                CUDA_HOME=/usr/lib/nvidia-cuda-toolkit HF_ENDPOINT=https://hf-mirror.com \
+                timeout 300 "$MN_ENV/mineru" -p "$safe_src" -o "$tmpdir" \
+                -b vlm-engine \
                 >> "$LOG" 2>&1; then
                 local found=$(find "$tmpdir" -name "*.md" -type f 2>/dev/null | head -1)
                 if [ -n "$found" ]; then
@@ -190,6 +202,7 @@ run_one() {
                 local docx=$(find "$tmpdir" -name "*.docx" -type f 2>/dev/null | head -1)
                 if [ -n "$docx" ]; then
                     if "$MD_ENV/markitdown" --keep-data-uris "$docx" > "$dst_file" 2>> "$LOG"; then
+                        extract_md_images "$dst_file"
                         lo_ok=1
                         break
                     fi
@@ -216,10 +229,12 @@ run_one() {
         if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to pptx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
             local pptx=$(find "$tmpdir" -name "*.pptx" -type f 2>/dev/null | head -1)
             if [ -n "$pptx" ]; then
-                "$MD_ENV/markitdown" --keep-data-uris "$pptx" > "$dst_file" 2>> "$LOG" || {
+                if "$MD_ENV/markitdown" --keep-data-uris "$pptx" > "$dst_file" 2>> "$LOG"; then
+                    extract_md_images "$dst_file"
+                else
                     echo "  ⚠️ markitdown failed (.ppt→pptx): $rel" >> "$LOG"
                     count_md_fail=$((count_md_fail + 1))
-                }
+                fi
             else
                 echo "  ⚠️ lo→pptx empty: $rel" >> "$LOG"
                 count_md_fail=$((count_md_fail + 1))
@@ -244,6 +259,7 @@ run_one() {
             if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to xlsx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
                 local xlsx=$(find "$tmpdir" -name "*.xlsx" -type f 2>/dev/null | head -1)
                 if [ -n "$xlsx" ] && "$MD_ENV/markitdown" --keep-data-uris "$xlsx" > "$dst_file" 2>> "$LOG"; then
+                    extract_md_images "$dst_file"
                     lo_ok=1
                     break
                 fi
@@ -258,7 +274,7 @@ run_one() {
     else
         count_md=$((count_md + 1))
         if "$MD_ENV/markitdown" --keep-data-uris "$src" > "$dst_file" 2>> "$LOG"; then
-            :
+            extract_md_images "$dst_file"
         else
             echo "  ⚠️ markitdown failed: $rel" >> "$LOG"
             count_md_fail=$((count_md_fail + 1))
