@@ -132,7 +132,30 @@ run_one() {
                 >> "$LOG" 2>&1; then
                 local found=$(find "$tmpdir" -name "*.md" -type f 2>/dev/null | head -1)
                 if [ -n "$found" ]; then
+                    # 2026-06-27 改:copy 完整产物(图纸截图/现场照片是 KB 重要视觉资产)
+                    # 产物结构: $tmpdir/<base>/hybrid_auto/{*.md, images/<hash>.jpg, *_layout.pdf, *_origin.pdf, *_content_list*.json, *_middle.json, *_model.json}
+                    # md 用相对路径 images/<hash>.jpg 引用图,所以 images/ 必须和 md 同级
+                    local src_dir=$(dirname "$found")
+                    local dst_dir="$(dirname "$dst_file")"
+                    # 1. cp md 到顶层 (兼容现有 schema Gate: <base>.pdf.md)
                     cp "$found" "$dst_file"
+                    # 2. cp images/ 加 base 前缀(避免不同 PDF 的同名 hash 冲突)
+                    if [ -d "$src_dir/images" ]; then
+                        mkdir -p "$dst_dir/images"
+                        for img in "$src_dir"/images/*; do
+                            [ -f "$img" ] || continue
+                            local img_ext="${img##*.}"
+                            cp "$img" "$dst_dir/images/${base_no_ext}_$(basename "$img")"
+                        done
+                        # 3. sed 改 md 的图片引用路径,加 base 前缀
+                        sed -i "s|images/|images/${base_no_ext}_|g" "$dst_file"
+                    fi
+                    # 4. cp 其他辅助产物(layout pdf, origin pdf, content_list json)到 base 子目录
+                    local asset_dir="$dst_dir/${base_no_ext}_assets"
+                    mkdir -p "$asset_dir"
+                    for f in "$src_dir"/*_layout.pdf "$src_dir"/*_origin.pdf "$src_dir"/*_content_list*.json "$src_dir"/*_middle.json "$src_dir"/*_model.json; do
+                        [ -f "$f" ] && cp "$f" "$asset_dir/"
+                    done
                     count_pdf_scanned_done=$((count_pdf_scanned_done + 1))
                 else
                     echo "  ⚠️ mineru OK but no .md in $tmpdir: $rel" >> "$LOG"
