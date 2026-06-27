@@ -117,6 +117,7 @@ run_one() {
     mkdir -p "$(dirname "$dst_file")"
 
     local start=$(date +%s)
+    local result_tag=""  # v11.1:成功/失败标记,主进程 stdout 可见
 
     if [ "$ext_lower" = "pdf" ]; then
         # PDF CAD 图纸跳过(2026-06-27 用户要求)
@@ -180,24 +181,33 @@ run_one() {
                     # 把 md 里的 images/<hash>.jpg 改成 ./<base>/images/<hash>.jpg
                     sed -i "s|images/|./${base}/images/|g" "$dst_file"
                     count_pdf_scanned_done=$((count_pdf_scanned_done + 1))
+                    echo "[SCAN OK] $rel"  # v11.1:成功标记(stdout,主进程可见)
+                    result_tag="[SCAN OK]"
                 else
                     echo "  ⚠️ mineru OK but no .md in $tmpdir: $rel" >> "$LOG"
+                    echo "[SCAN FAIL no-md] $rel"  # v11.1:失败标记
+                    result_tag="[SCAN FAIL]"
                 fi
             else
-                echo "  ⚠️ mineru failed (exit=$?): $rel" >> "$LOG"
+                local _exit=$?
+                echo "  ⚠️ mineru failed (exit=$_exit): $rel" >> "$LOG"
+                echo "[SCAN FAIL exit=$_exit] $rel"  # v11.1:失败标记
+                result_tag="[SCAN FAIL]"
             fi
             rm -rf "$tmpdir"
         else
             count_pdf_text=$((count_pdf_text + 1))
             if pdftotext -layout "$src" "$dst_file" 2>> "$LOG"; then
-                :
+                result_tag="[PDF OK]"
             else
                 echo "  ⚠️ pdftotext failed: $rel" >> "$LOG"
+                result_tag="[PDF FAIL]"
             fi
         fi
     elif [ "$ext_lower" = "txt" ] || [ "$ext_lower" = "log" ]; then
         cp "$src" "$dst_file"
         count_txt=$((count_txt + 1))
+        result_tag="[TXT OK]"
     elif [ "$ext_lower" = "doc" ]; then
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
@@ -210,6 +220,7 @@ run_one() {
                     if "$MD_ENV/markitdown" --keep-data-uris "$docx" > "$dst_file" 2>> "$LOG"; then
                         extract_md_images "$dst_file"
                         lo_ok=1
+                        result_tag="[MD OK .doc]"
                         break
                     fi
                 fi
@@ -219,6 +230,7 @@ run_one() {
         if [ $lo_ok -eq 0 ]; then
             echo "  ⚠️ LO→docx→md 失败 (重试3次): $rel" >> "$LOG"
             count_md_fail=$((count_md_fail + 1))
+            result_tag="[MD FAIL .doc]"
         fi
         rm -rf "$tmpdir"
     elif [ "$ext_lower" = "ppt" ]; then
@@ -230,17 +242,21 @@ run_one() {
             if [ -n "$pptx" ]; then
                 if "$MD_ENV/markitdown" --keep-data-uris "$pptx" > "$dst_file" 2>> "$LOG"; then
                     extract_md_images "$dst_file"
+                    result_tag="[MD OK .ppt]"
                 else
                     echo "  ⚠️ markitdown failed (.ppt→pptx): $rel" >> "$LOG"
                     count_md_fail=$((count_md_fail + 1))
+                    result_tag="[MD FAIL .ppt]"
                 fi
             else
                 echo "  ⚠️ lo→pptx empty: $rel" >> "$LOG"
                 count_md_fail=$((count_md_fail + 1))
+                result_tag="[MD FAIL .ppt no-pptx]"
             fi
         else
             echo "  ⚠️ lo failed (.ppt): $rel" >> "$LOG"
             count_md_fail=$((count_md_fail + 1))
+            result_tag="[MD FAIL .ppt lo]"
         fi
         rm -rf "$tmpdir"
     elif [ "$ext_lower" = "xls" ]; then
@@ -254,6 +270,7 @@ run_one() {
                 if [ -n "$xlsx" ] && "$MD_ENV/markitdown" --keep-data-uris "$xlsx" > "$dst_file" 2>> "$LOG"; then
                     extract_md_images "$dst_file"
                     lo_ok=1
+                    result_tag="[MD OK .xls]"
                     break
                 fi
             fi
@@ -262,21 +279,26 @@ run_one() {
         if [ $lo_ok -eq 0 ]; then
             echo "  ⚠️ LO→xlsx→md 失败 (重试3次): $rel" >> "$LOG"
             count_md_fail=$((count_md_fail + 1))
+            result_tag="[MD FAIL .xls]"
         fi
         rm -rf "$tmpdir"
     else
         count_md=$((count_md + 1))
         if "$MD_ENV/markitdown" --keep-data-uris "$src" > "$dst_file" 2>> "$LOG"; then
             extract_md_images "$dst_file"
+            result_tag="[MD OK .$ext_lower]"
         else
             echo "  ⚠️ markitdown failed: $rel" >> "$LOG"
             count_md_fail=$((count_md_fail + 1))
+            result_tag="[MD FAIL .$ext_lower]"
         fi
     fi
 
     local end=$(date +%s)
     local sz=$(stat -c%s "$dst_file" 2>/dev/null || echo "0")
-    echo "[$(date '+%H:%M:%S')] $rel → $((end-start))s $sz B" >> "$LOG"
+    # v11.1:末尾行加 result_tag(成功/失败标记,主进程 stdout 可见,grep -E '\[(SCAN|MD|PDF|TXT) (OK|FAIL)' 可过滤)
+    [ -z "$result_tag" ] && result_tag="[SKIP]"
+    echo "${result_tag} [$rel]($((end-start))s ${sz}B)"
 
     count_total=$((count_total + 1))
     if [ $((count_total % 20)) -eq 0 ]; then
@@ -396,15 +418,12 @@ convert_year() {
         # 只处理文档类型
         case "$ext_lower" in
             pdf)
-                # v11 新增:判断扫描 vs 非扫描,扫描同步跑(独占 GPU),非扫描并发
+                # v11 新增:判断扫描 vs 非扫描
+                # 扫描 PDF 同步跑(独占 GPU,不能并发),期间 markitdown 后台 worker 继续跑(只用 CPU)
+                # 非扫描 PDF → 扔后台(并发)
                 local scan=$(is_scanned_quick "$src")
                 if [ "$scan" = "1" ]; then
-                    # 扫描 PDF:同步跑(独占 GPU)
-                    # 收一波:当前 batch 后台 worker 满了就先 wait
-                    if [ ${#bg_pids[@]} -ge $MAX_PARALLEL ]; then
-                        for pid in "${bg_pids[@]}"; do wait "$pid" 2>/dev/null; done
-                        bg_pids=()
-                    fi
+                    # 扫描 PDF:同步跑(独占 GPU,不等后台 worker — 后台用 CPU 不冲突)
                     run_one "$src"
                 else
                     # 非扫描 PDF:扔后台(并发)
@@ -421,7 +440,7 @@ convert_year() {
                 ;;
         esac
 
-        # v11 新增:后台队列达到阈值就 flush
+        # v11 新增:后台队列达到阈值就 flush(只等后台,不等扫描 PDF)
         if [ ${#bg_queue[@]} -ge $MAX_PARALLEL ]; then
             flush_bg_queue
         fi
