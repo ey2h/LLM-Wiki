@@ -45,7 +45,7 @@ SRC_BASE="$NFS/项目存档"
 DST_BASE="$NFS/LLM-WIKI/raw"
 LOG_DIR="/home/jack/projects/ai-rd-system/toolchain/logs"
 MD_ENV="/home/jack/projects/ai-rd-system/toolchain/envs/markitdown/bin"
-EXTRACT_SCRIPT="$ROOT/scripts/extract_md_images.py"  # 2026-06-27:拆 base64 → images/ + 改 md 引用
+EXTRACT_SCRIPT="/home/jack/LLM-Wiki/scripts/extract_md_images.py"  # 2026-06-27:拆 base64 → images/ + 改 md 引用
 
 # 2026-06-27 markitdown --keep-data-uris 拆图:把 base64 内嵌图拆到 images/,md 引用改相对路径
 # 跟扫描 PDF mineru 产物结构一致(<base>.ext.md.d/<base>.ext.md + images/)
