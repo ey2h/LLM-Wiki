@@ -37,7 +37,14 @@ EXTRACT_SCRIPT="/home/jack/LLM-Wiki/scripts/extract_md_images.py"  # 2026-06-27:
 #   - 扫描 PDF (avg < 30):同步跑,独占 GPU
 #   - 非扫描 PDF + 所有 Office + txt/log:后台并发(max N worker)
 #   - 每 batch 收 N 个非扫描任务 + 0-N 个扫描任务,扫描在 batch 内同步跑完后 wait 全部后台
-MAX_PARALLEL="${MAX_PARALLEL:-4}"     # v11 新增:非扫描文件并发 worker 数
+#
+# 2026-06-27 v11.2:MAX_PARALLEL 默认从 4 降到 2
+# 原因:MAX_PARALLEL=4 + VLLM Engine(6GB GPU KV cache)+ 183 页扫描 PDF → 系统 OOM-kill
+# 实测 21:26:58 hermes-gateway 触发 kernel OOM killer,VLLM Engine (oom_score_adj=200) 第一个被杀,
+# 连带 daemon 主进程一起被 SIGKILL。
+# MAX_PARALLEL=2 → 后台 markitdown+LO 进程累计内存减半,留出 1-2GB 余量给 VLLM mmap buffer。
+# 吞吐损失:后台并发从 4 → 2,Office 转换速度减半,但扫描 PDF 仍同步(不受影响),整体影响 ~25%。
+MAX_PARALLEL="${MAX_PARALLEL:-2}"        # v11.2 默认 2(v11.1 是 4,触发 OOM)
 BATCH_SCAN_LIMIT="${BATCH_SCAN_LIMIT:-3}"  # v11 新增:每个 batch 内最大扫描文件数
 SCAN_CACHE_DIR="${LOG_DIR}/.scan_cache"     # v11 新增:扫描判断 cache(避免每批重复探测)
 mkdir -p "$SCAN_CACHE_DIR"
