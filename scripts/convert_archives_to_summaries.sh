@@ -116,12 +116,12 @@ generate_summary() {
             sub(/^ /, "", name);
             printf "%s|%s|%s|%s\n", name, size, $2, date " " time;
         }' | head -1000) ;;
-        rar) inventory=$(unrar l "$archive_path" 2>/dev/null | iconv -f GBK -t UTF-8//IGNORE 2>/dev/null | awk '/^[ ]+[0-9]+/ {
-            size=$1;
+        rar) inventory=$(7z l "$archive_path" 2>/dev/null | iconv -f GBK -t UTF-8//IGNORE 2>/dev/null | awk '/^[ ]+[0-9]{4}-[0-9]{2}-[0-9]{2}/ {
+            date=$1; time=$2; attr=$3; size=$4;
             name="";
-            for (i=5; i<=NF; i++) name = name " " $i;
+            for (i=6; i<=NF; i++) name = name " " $i;
             sub(/^ /, "", name);
-            printf "%s|%s||\n", name, size;
+            printf "%s|%s||%s\n", name, size, date " " time;
         }' | head -1000) ;;
         7z) inventory=$(7z l "$archive_path" 2>/dev/null | iconv -f GBK -t UTF-8//IGNORE 2>/dev/null | awk '/^[ ]+[0-9]{4}-[0-9]{2}-[0-9]{2}/ {
             date=$1; time=$2; attr=$3; size=$4;
@@ -136,7 +136,8 @@ generate_summary() {
     esac
 
     # 解析 inventory
-    local file_count=$(echo -n "$inventory" | grep -c '^' 2>/dev/null || echo "0")
+    local file_count=$(echo "$inventory" | grep -c '^' 2>/dev/null | head -1)
+    [ -z "$file_count" ] && file_count=0
     local total_uncompressed=$(echo "$inventory" | awk -F'|' '{sum+=$2} END {print sum+0}')
     local total_uncompressed_mb=$(echo "scale=2; $total_uncompressed / 1048576" | bc 2>/dev/null || echo "?")
 
@@ -297,7 +298,7 @@ process_archive() {
     [ -f "$archive_path" ] || return
     case "$ext" in
         zip) unzip -l "$archive_path" >/dev/null 2>&1 || { echo "  [FAIL] zip 损坏: $archive_path"; return; } ;;
-        rar) unrar l "$archive_path" >/dev/null 2>&1 || { echo "  [FAIL] rar 损坏: $archive_path"; return; } ;;
+        rar) 7z l "$archive_path" >/dev/null 2>&1 || { echo "  [FAIL] rar 损坏: $archive_path"; return; } ;;
         7z) 7z l "$archive_path" >/dev/null 2>&1 || { echo "  [FAIL] 7z 损坏: $archive_path"; return; } ;;
         tar.gz) tar -tzf "$archive_path" >/dev/null 2>&1 || { echo "  [FAIL] tar.gz 损坏: $archive_path"; return; } ;;
     esac

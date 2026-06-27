@@ -99,6 +99,10 @@ run_one() {
         if [ "$avg" -lt 30 ]; then
             count_pdf_scanned=$((count_pdf_scanned + 1))
             echo "[SCAN avg=$avg] $rel"
+            # 2026-06-27 改回 commit 18a2561 的成功方式:
+            # "$MN_ENV/mineru -p -o" → mineru 自己启 vllm-async-engine(不需要外部 server)
+            # 不调 parse_pdf.sh(那个会自己启 vllm serve + 端口冲突)
+            # GPU 显存必须先空(已空 354MB) + utils.py 改回 0.85 已做
             local tmpdir=$(mktemp -d)
             if "$MN_ENV/mineru" -p "$src" -o "$tmpdir" >> "$LOG" 2>&1; then
                 local found=$(find "$tmpdir" -name "*.md" -type f 2>/dev/null | head -1)
