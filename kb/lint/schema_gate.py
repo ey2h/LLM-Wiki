@@ -295,6 +295,28 @@ def check_file(path: Path) -> list[str]:
             except (ValueError, TypeError):
                 pass
 
+        # Hard Gate #8(SKILL 3 评审要求):risk_flags 个数 == Plan §5 风险表行数
+        risk_flags = fm.get("risk_flags")
+        if isinstance(risk_flags, list) and len(risk_flags) > 0:
+            # 找 §5 风险表行数(简化为数 "|^| R[0-9]+|^| \*\*R[0-9]+" 这种行)
+            risk_rows = re.findall(r"^\|\s*\*?\*?R\d+\*?\*?\s*\|", body, re.MULTILINE)
+            if len(risk_rows) != len(risk_flags):
+                errors.append(
+                    f"{rel}: risk_flags({len(risk_flags)} 个) 与 §5 风险表({len(risk_rows)} 行) "
+                    f"不一致(Hard Gate #8)— SKILL 3 评审会 reject"
+                )
+
+        # Hard Gate #9(SKILL 3 评审要求):unit_price_analysis 每项含 kb_source
+        upa = fm.get("unit_price_analysis")
+        if isinstance(upa, list) and upa:
+            for i, item in enumerate(upa):
+                if isinstance(item, dict) and "unit_cny_per_m2" in item:
+                    if "kb_source" not in item or not item["kb_source"]:
+                        errors.append(
+                            f"{rel}: unit_price_analysis[{i}].{item.get('subsystem', '?')} "
+                            f"缺 kb_source 字段(Hard Gate #9)"
+                        )
+
     return errors
 
 

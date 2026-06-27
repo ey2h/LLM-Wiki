@@ -11,7 +11,7 @@ status: completed
 verdict: needs_revision
 total_score: 35
 max_score: 50
-tags: [评审, Plan, needs-revision, curtain-wall, zhonghang]
+tags: [评审, Plan, needs-revision, curtain-wall, zhonghang, superseded-by-20260627-v2]
 created: 2026-06-27
 updated: 2026-06-27
 maintainer: jack

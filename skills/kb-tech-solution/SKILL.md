@@ -1,8 +1,8 @@
 ---
 name: kb-tech-solution
 description: Use when generating a technical solution from a PRD in ai-rd-system — loads the PRD from kb/prds/, queries KB for baseline/reference projects via kb-just-ask, applies the 9-phase workflow to produce a Plan document at kb/plans/<slug>.md, and submits for review via kb-tech-review
-version: 0.1
-status: draft
+version: 0.2
+status: active
 created: 2026-06-26
 updated: 2026-06-26
 maintainer: jack (via Hermes)
@@ -54,6 +54,8 @@ maintainer: jack (via Hermes)
 | 5 | 输出路径 `kb/plans/<slug>.md` | 不允许写到别处 |
 | 6 | Plan frontmatter 必填字段齐(`type/title/description/created/updated/related_prd`) | 缺失用 `[待补充]` 占位 |
 | 7 | 关联回 PRD(`related_prd: [[/prds/<slug>]]`) | 必须双向链接 |
+| 8 | `risk_flags` 个数 == Plan §5 风险表行数 | **Hard Gate**(SKILL 3 评审硬要求)— 不一致触发 reject |
+| 9 | `unit_price_analysis` 每项含 `kb_source` 字段 | **Hard Gate**(SKILL 3 评审硬要求)— 缺则触发 needs_revision |
 
 ## Phase 0: 加载 PRD
 
@@ -142,7 +144,7 @@ baselines = [
 | 输出字段 | 生成方法 |
 |----------|----------|
 | `summary_table` | 子系统 × 面积 × 单价 × 合计,基于 baselines 单价 × prd inputs 面积 |
-| `unit_price_analysis` | 5 分项:人工/材料/机械/管理/利润,从 baseline Source 抽 |
+| `unit_price_analysis` | 5 分项:人工/材料/机械/管理/利润 + `unit_cny_per_m2` + **`kb_source`(必填,引用 baseline KB slug)** + `note`(解释)。从 baseline Source 抽;若无 KB 依据,**不允许凭经验填**,需在 Plan §5 标 `unit_price_no_kb_basis` 风险 |
 | `total_quote_cny` | sum(sub_area × unit_price) |
 | `breakdown_by_subsystem` | 各子系统造价占比 |
 | `reference_projects` | baselines 的 slug 列表 |
