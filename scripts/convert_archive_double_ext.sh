@@ -132,30 +132,20 @@ run_one() {
                 >> "$LOG" 2>&1; then
                 local found=$(find "$tmpdir" -name "*.md" -type f 2>/dev/null | head -1)
                 if [ -n "$found" ]; then
-                    # 2026-06-27 改:copy 完整产物(图纸截图/现场照片是 KB 重要视觉资产)
-                    # 产物结构: $tmpdir/<base>/hybrid_auto/{*.md, images/<hash>.jpg, *_layout.pdf, *_origin.pdf, *_content_list*.json, *_middle.json, *_model.json}
-                    # md 用相对路径 images/<hash>.jpg 引用图,所以 images/ 必须和 md 同级
+                    # 2026-06-27 改:把全部产物装 <base>.pdf/ 子目录(图纸截图/现场照片/layout PDF 等)
+                    # 顶层 <base>.pdf.md 仍是 schema Gate 主入口
+                    # <base>.pdf/ 子目录 = 完整资产,Obsidian 直接渲染
+                    # md 引用 ./<base>.pdf/images/<hash>.jpg 相对路径
                     local src_dir=$(dirname "$found")
-                    local dst_dir="$(dirname "$dst_file")"
-                    # 1. cp md 到顶层 (兼容现有 schema Gate: <base>.pdf.md)
-                    cp "$found" "$dst_file"
-                    # 2. cp images/ 加 base 前缀(避免不同 PDF 的同名 hash 冲突)
-                    if [ -d "$src_dir/images" ]; then
-                        mkdir -p "$dst_dir/images"
-                        for img in "$src_dir"/images/*; do
-                            [ -f "$img" ] || continue
-                            local img_ext="${img##*.}"
-                            cp "$img" "$dst_dir/images/${base_no_ext}_$(basename "$img")"
-                        done
-                        # 3. sed 改 md 的图片引用路径,加 base 前缀
-                        sed -i "s|images/|images/${base_no_ext}_|g" "$dst_file"
-                    fi
-                    # 4. cp 其他辅助产物(layout pdf, origin pdf, content_list json)到 base 子目录
-                    local asset_dir="$dst_dir/${base_no_ext}_assets"
+                    local asset_dir="$(dirname "$dst_file")/${base}"  # base = CW-A1-01.pdf
+                    rm -rf "$asset_dir"  # 清掉旧的(重跑覆盖)
                     mkdir -p "$asset_dir"
-                    for f in "$src_dir"/*_layout.pdf "$src_dir"/*_origin.pdf "$src_dir"/*_content_list*.json "$src_dir"/*_middle.json "$src_dir"/*_model.json; do
-                        [ -f "$f" ] && cp "$f" "$asset_dir/"
-                    done
+                    # cp md + images/ + layout/origin pdf + content_list json 等
+                    cp -r "$src_dir"/. "$asset_dir"/
+                    # 顶层 dst_file 是 schema Gate 主入口;cp md + sed 改 images/ 引用路径
+                    cp "$found" "$dst_file"
+                    # 把 md 里的 images/<hash>.jpg 改成 ./<base>/images/<hash>.jpg
+                    sed -i "s|images/|./${base}/images/|g" "$dst_file"
                     count_pdf_scanned_done=$((count_pdf_scanned_done + 1))
                 else
                     echo "  ⚠️ mineru OK but no .md in $tmpdir: $rel" >> "$LOG"
