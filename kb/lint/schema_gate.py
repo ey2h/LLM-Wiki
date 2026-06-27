@@ -11,8 +11,11 @@ kb/lint/schema_gate.py — KB 结构层评测(L1)
 6. description ≤ 200 字
 7. tags 3-7 个
 8. created/updated 是 ISO 8601 日期
+9. Plan type 专属字段校验(KB-META §1.6)
 
 输出:L1 结构层评测报告 + exit code(0=绿,1=红)
+
+依赖:pyyaml(用于解析 list[dict] 等复杂 frontmatter 字段)
 """
 
 from __future__ import annotations
@@ -23,6 +26,15 @@ import sys
 from pathlib import Path
 from datetime import date
 from collections import defaultdict
+
+try:
+    import yaml as _yaml  # 用于解析 list[dict] 等复杂 frontmatter 字段
+    yaml = _yaml  # 让 pyright 不报 unbound
+    HAS_YAML = True
+except ImportError:
+    yaml = None
+    HAS_YAML = False
+    print("⚠️  pyyaml 未装,fallback 到简单正则解析(list[dict] 等复杂字段会失败)", file=sys.stderr)
 
 # KB 根目录(相对脚本位置)
 KB_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -91,12 +103,28 @@ CROSS_REF_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
 
 def parse_frontmatter(text: str) -> tuple[dict | None, str]:
-    """解析 YAML frontmatter(简单实现,只支持 key: value / key: [list])"""
+    """
+    解析 YAML frontmatter。
+    - 优先用 pyyaml(支持 list[dict] 等复杂字段)
+    - fallback 到简单正则(只支持 key: value / key: [list])
+    """
     m = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.DOTALL)
     if not m:
         return None, text
     fm_text = m.group(1)
     body = m.group(2)
+
+    if HAS_YAML:
+        try:
+            fm = yaml.safe_load(fm_text) or {}  # type: ignore[union-attr]
+            if not isinstance(fm, dict):
+                return None, body
+            return fm, body
+        except yaml.YAMLError as e:  # type: ignore[union-attr]
+            print(f"⚠️  YAML 解析失败: {e}", file=sys.stderr)
+            # 继续 fallback 到简单解析
+
+    # Fallback: 简单正则(只支持 key: value / key: [list] / key:\n  - item)
     fm = {}
     current_list_key = None
     for line in fm_text.split("\n"):
