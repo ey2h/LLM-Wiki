@@ -20,25 +20,9 @@
 #   bash convert_archive_double_ext.sh <year> --dry-run  # 演练
 set -e
 
-# OOM 防护(2026-06-27):限制单进程虚拟内存,避免 OOM killer 杀 daemon
-# mineru 跑扫描 PDF 时 PyMuPDF + pdfium + PIL + numpy 峰值 ~4-6GB(v6 segfault 根因 = ulimit -m 4G 卡死大扫描 PDF native heap)
-# 实测 5.5MB/10 页扫描 PDF 渲染时,驻留峰值可冲到 4-5GB → 触发 OOM kill(4-5s exit=139)
-# 2026-06-27 改为:虚拟不限(8G),驻留 8G;机器 15G,留 5G 给 vllm(10.5G)+LO
-ulimit -v 8388608  # 8GB 虚拟内存
-ulimit -m 8388608  # 8GB 驻留内存
-echo "  [OOM-GUARD] ulimit -m 8G active (修复 v6 扫描 PDF OOM-killed segfault)"
-
-# OOM 防护(2026-06-27):检查系统内存压力,>=80% 跳过该文件
-check_memory_pressure() {
-    local mem_total=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-    local mem_avail=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-    local mem_used_pct=$(( (mem_total - mem_avail) * 100 / mem_total ))
-    if [ "$mem_used_pct" -ge 80 ]; then
-        echo "  ⚠️ memory_pressure: ${mem_used_pct}% used (>=80%)" >> "$LOG"
-        return 0  # 0 = 有压力,跳过
-    fi
-    return 1  # 1 = 无压力,继续
-}
+# 2026-06-27:跟 GitHub ey2h/LLM-Wiki parse_pdf.sh 保持一致 — 不设 ulimit,
+# 信任 mineru + 系统 OOM killer 自动管内存。实测 ulimit -m 会破坏 vllm 8MB KV cache mmap,
+# 导致所有扫描 PDF 'memory allocation of 8388608 bytes failed' 全失败。
 
 NFS="/mnt/nfs"
 SRC_BASE="$NFS/项目存档"
@@ -187,12 +171,6 @@ run_one() {
         cp "$src" "$dst_file"
         count_txt=$((count_txt + 1))
     elif [ "$ext_lower" = "doc" ]; then
-        if check_memory_pressure; then
-            echo "  ⚠️ memory_pressure_skip (.doc): $rel" >> "$LOG"
-            count_md_fail=$((count_md_fail + 1))
-            sleep 30
-            return
-        fi
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
         local lo_ok=0
@@ -216,13 +194,6 @@ run_one() {
         fi
         rm -rf "$tmpdir"
     elif [ "$ext_lower" = "ppt" ]; then
-        # OOM 防护(2026-06-27):跳过当前 .ppt 文件,等内存恢复后再转
-        if check_memory_pressure; then
-            echo "  ⚠️ memory_pressure_skip (.ppt): $rel" >> "$LOG"
-            count_md_fail=$((count_md_fail + 1))
-            sleep 30
-            return
-        fi
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
         # 加 --norestore --nologo --nolockcheck 减少 LO 自身内存(2026-06-27)
@@ -245,12 +216,6 @@ run_one() {
         fi
         rm -rf "$tmpdir"
     elif [ "$ext_lower" = "xls" ]; then
-        if check_memory_pressure; then
-            echo "  ⚠️ memory_pressure_skip (.xls): $rel" >> "$LOG"
-            count_md_fail=$((count_md_fail + 1))
-            sleep 30
-            return
-        fi
         count_md=$((count_md + 1))
         local tmpdir=$(mktemp -d)
         local lo_ok=0
