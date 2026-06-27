@@ -106,13 +106,33 @@ generate_summary() {
     local archive_size_bytes=$(stat -c%s "$archive_path" 2>/dev/null || echo "0")
     local archive_size_mb=$(echo "scale=2; $archive_size_bytes / 1048576" | bc 2>/dev/null || echo "?")
 
-    # 读清单
+    # 读清单(2026-06-27 修:GBK→UTF-8 转码,zip 内 Windows 文件名常见 GBK)
     local inventory=""
     case "$ext" in
-        zip) inventory=$(list_zip "$archive_path") ;;
-        rar) inventory=$(list_rar "$archive_path") ;;
-        7z) inventory=$(list_7z "$archive_path") ;;
-        tar.gz) inventory=$(list_targz "$archive_path") ;;
+        zip) inventory=$(unzip -l "$archive_path" 2>/dev/null | iconv -f GBK -t UTF-8//IGNORE 2>/dev/null | awk 'NR>3 && /^[ ]+[0-9]+/ {
+            size=$1; date=$3; time=$4;
+            name="";
+            for (i=5; i<=NF; i++) name = name " " $i;
+            sub(/^ /, "", name);
+            printf "%s|%s|%s|%s\n", name, size, $2, date " " time;
+        }' | head -1000) ;;
+        rar) inventory=$(unrar l "$archive_path" 2>/dev/null | iconv -f GBK -t UTF-8//IGNORE 2>/dev/null | awk '/^[ ]+[0-9]+/ {
+            size=$1;
+            name="";
+            for (i=5; i<=NF; i++) name = name " " $i;
+            sub(/^ /, "", name);
+            printf "%s|%s||\n", name, size;
+        }' | head -1000) ;;
+        7z) inventory=$(7z l "$archive_path" 2>/dev/null | iconv -f GBK -t UTF-8//IGNORE 2>/dev/null | awk '/^[ ]+[0-9]{4}-[0-9]{2}-[0-9]{2}/ {
+            date=$1; time=$2; attr=$3; size=$4;
+            name="";
+            for (i=6; i<=NF; i++) name = name " " $i;
+            sub(/^ /, "", name);
+            printf "%s|%s||%s\n", name, size, date " " time;
+        }' | head -1000) ;;
+        tar.gz) inventory=$(tar -tzf "$archive_path" 2>/dev/null | awk '{
+            printf "%s|||%s\n", $0, "tar.gz";
+        }' | head -1000) ;;
     esac
 
     # 解析 inventory
