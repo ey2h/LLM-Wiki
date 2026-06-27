@@ -36,7 +36,7 @@ while IFS= read -r line; do
             for try in 1 2 3; do
                 if libreoffice --headless --convert-to docx --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
                     docx=$(find "$tmpdir" -name "*.docx" -type f 2>/dev/null | head -1)
-                    if [ -n "$docx" ] && "$MD_ENV/markitdown" "$docx" > "$out" 2>/dev/null; then
+                    if [ -n "$docx" ] && "$MD_ENV/markitdown" --keep-data-uris "$docx" > "$out" 2>/dev/null; then
                         FIXED=$((FIXED + 1))
                         echo "  ✅ $(stat -c%s "$out") B"
                         lo_ok=1
@@ -59,7 +59,7 @@ while IFS= read -r line; do
             for try in 1 2 3; do
                 if libreoffice --headless --convert-to pptx --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
                     pptx=$(find "$tmpdir" -name "*.pptx" -type f 2>/dev/null | head -1)
-                    if [ -n "$pptx" ] && "$MD_ENV/markitdown" "$pptx" > "$out" 2>/dev/null; then
+                    if [ -n "$pptx" ] && "$MD_ENV/markitdown" --keep-data-uris "$pptx" > "$out" 2>/dev/null; then
                         FIXED=$((FIXED + 1))
                         echo "  ✅ $(stat -c%s "$out") B"
                         lo_ok=1
@@ -83,7 +83,7 @@ while IFS= read -r line; do
             for try in 1 2 3; do
                 if libreoffice --headless --convert-to xlsx --outdir "$tmpdir" "$src" >/dev/null 2>&1; then
                     xlsx=$(find "$tmpdir" -name "*.xlsx" -type f 2>/dev/null | head -1)
-                    if [ -n "$xlsx" ] && "$MD_ENV/markitdown" "$xlsx" > "$out" 2>/dev/null; then
+                    if [ -n "$xlsx" ] && "$MD_ENV/markitdown" --keep-data-uris "$xlsx" > "$out" 2>/dev/null; then
                         FIXED=$((FIXED + 1))
                         echo "  ✅ $(stat -c%s "$out") B"
                         lo_ok=1

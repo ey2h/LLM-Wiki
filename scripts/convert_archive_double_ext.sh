@@ -190,7 +190,7 @@ run_one() {
             if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to docx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
                 local docx=$(find "$tmpdir" -name "*.docx" -type f 2>/dev/null | head -1)
                 if [ -n "$docx" ]; then
-                    if "$MD_ENV/markitdown" "$docx" > "$dst_file" 2>> "$LOG"; then
+                    if "$MD_ENV/markitdown" --keep-data-uris "$docx" > "$dst_file" 2>> "$LOG"; then
                         lo_ok=1
                         break
                     fi
@@ -217,7 +217,7 @@ run_one() {
         if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to pptx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
             local pptx=$(find "$tmpdir" -name "*.pptx" -type f 2>/dev/null | head -1)
             if [ -n "$pptx" ]; then
-                "$MD_ENV/markitdown" "$pptx" > "$dst_file" 2>> "$LOG" || {
+                "$MD_ENV/markitdown" --keep-data-uris "$pptx" > "$dst_file" 2>> "$LOG" || {
                     echo "  ⚠️ markitdown failed (.ppt→pptx): $rel" >> "$LOG"
                     count_md_fail=$((count_md_fail + 1))
                 }
@@ -244,7 +244,7 @@ run_one() {
             # 加 --norestore --nologo --nolockcheck + timeout 120s(2026-06-27 OOM 防护)
             if timeout 120 libreoffice --headless --norestore --nologo --nolockcheck --convert-to xlsx --outdir "$tmpdir" "$src" >> "$LOG" 2>&1; then
                 local xlsx=$(find "$tmpdir" -name "*.xlsx" -type f 2>/dev/null | head -1)
-                if [ -n "$xlsx" ] && "$MD_ENV/markitdown" "$xlsx" > "$dst_file" 2>> "$LOG"; then
+                if [ -n "$xlsx" ] && "$MD_ENV/markitdown" --keep-data-uris "$xlsx" > "$dst_file" 2>> "$LOG"; then
                     lo_ok=1
                     break
                 fi
@@ -258,7 +258,7 @@ run_one() {
         rm -rf "$tmpdir"
     else
         count_md=$((count_md + 1))
-        if "$MD_ENV/markitdown" "$src" > "$dst_file" 2>> "$LOG"; then
+        if "$MD_ENV/markitdown" --keep-data-uris "$src" > "$dst_file" 2>> "$LOG"; then
             :
         else
             echo "  ⚠️ markitdown failed: $rel" >> "$LOG"
