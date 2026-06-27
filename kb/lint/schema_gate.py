@@ -62,6 +62,27 @@ TYPE_TO_DIR = {
 # 顶层 Schema 文件(不需要目录映射,允许位于 kb/ 根)
 TOP_LEVEL_SCHEMA = {"KB-META.md", "CLAUDE.md", "index.md", "log.md", "README.md"}
 
+# Plan type 专属必填字段(KB-META §1.6)
+PLAN_REQUIRED_FM = [
+    "plan_type",        # 子类型
+    "related_prd",      # 双向链接回 PRD
+    "reference_projects",  # baseline 列表
+    "confidence_score", # 0-1
+    "risk_flags",       # 风险标签列表
+    "summary_table",    # 摘要表(纯文本 markdown)
+]
+
+# Plan 造价类必填字段(若 reference_projects 非空则要求)
+PLAN_PRICING_FM = [
+    "total_quote_cny",  # 总价
+    "unit_price_analysis",  # 子系统 5 分项
+    "breakdown_by_subsystem",  # 各子系统占比
+]
+
+# Plan 字段校验:每个百分比必须有 ≥1 KB Source 引用(在 unit_price_analysis 内部)
+# 注:5 分项(labor/material/machine/management/profit)之和应 = 100
+PLAN_5P_KEYS = {"labor_pct", "material_pct", "machine_pct", "management_pct", "profit_pct"}
+
 # ISO 8601 日期校验(yyyy-mm-dd)
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -188,6 +209,61 @@ def check_file(path: Path) -> list[str]:
             # 也允许中文 slug(无特殊字符)
             if not re.match(r"^[\u4e00-\u9fa5a-zA-Z0-9_/-]+$", ref):
                 errors.append(f"{rel}: 跨引用 '[[{ref}]]' 格式不规范")
+
+    # 9. Plan type 专属字段校验(KB-META §1.6)
+    if isinstance(type_val, str) and type_val == "Plan":
+        for field in PLAN_REQUIRED_FM:
+            if field not in fm or fm[field] == "" or fm[field] == "[待补充]":
+                errors.append(f"{rel}: Plan 缺必填字段 '{field}'(KB-META §1.6)")
+
+        # 造价类:若 reference_projects 非空,要求 pricing 字段
+        ref_projects = fm.get("reference_projects")
+        has_refs = isinstance(ref_projects, list) and len(ref_projects) > 0
+        if has_refs:
+            for field in PLAN_PRICING_FM:
+                if field not in fm or fm[field] == "" or fm[field] == "[待补充]":
+                    errors.append(f"{rel}: Plan(reference_projects 非空)缺必填字段 '{field}'")
+
+        # confidence_score 必须在 0-1
+        cs = fm.get("confidence_score")
+        if isinstance(cs, str):
+            try:
+                cs_f = float(cs)
+                if cs_f < 0 or cs_f > 1:
+                    errors.append(f"{rel}: confidence_score={cs_f} 不在 0-1 范围")
+            except ValueError:
+                errors.append(f"{rel}: confidence_score='{cs}' 不是数字")
+
+        # risk_flags 应是 list 且 ≥ 1
+        rf = fm.get("risk_flags")
+        if rf is not None and (not isinstance(rf, list) or len(rf) == 0):
+            errors.append(f"{rel}: risk_flags 应是非空 list")
+
+        # unit_price_analysis:每项必含 5 分项,且 5 项之和 = 100(±1)
+        upa = fm.get("unit_price_analysis")
+        if isinstance(upa, list) and upa:
+            for i, item in enumerate(upa):
+                if not isinstance(item, dict):
+                    errors.append(f"{rel}: unit_price_analysis[{i}] 不是 dict")
+                    continue
+                missing_5p = PLAN_5P_KEYS - set(item.keys())
+                if missing_5p:
+                    errors.append(f"{rel}: unit_price_analysis[{i}] 缺 5 分项 {missing_5p}")
+                else:
+                    # 校验 5 项之和 = 100(±1)
+                    total_5p = sum(int(item[k]) for k in PLAN_5P_KEYS if str(item[k]).lstrip("-").isdigit())
+                    if abs(total_5p - 100) > 1:
+                        errors.append(f"{rel}: unit_price_analysis[{i}].5 分项之和={total_5p},应=100(±1)")
+
+        # breakdown_by_subsystem:各值之和应接近 100
+        bbs = fm.get("breakdown_by_subsystem")
+        if isinstance(bbs, dict) and bbs:
+            try:
+                total_pct = sum(float(v) for v in bbs.values() if str(v).replace(".", "").lstrip("-").isdigit())
+                if abs(total_pct - 100) > 1:
+                    errors.append(f"{rel}: breakdown_by_subsystem 各子系统占比之和={total_pct},应=100(±1)")
+            except (ValueError, TypeError):
+                pass
 
     return errors
 

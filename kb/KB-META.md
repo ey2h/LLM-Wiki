@@ -114,6 +114,57 @@ version: 0.1
 
 **两者在我们的 KB 里都允许**,但推荐 bundle-relative(OKF 标准)。
 
+**Plan 专属链接约定**(SKILL 2 使用):
+
+```markdown
+related_prd: "[[/kb/prds/<slug>]]"              # 双向链接回 PRD
+reference_projects:                              # 引用的 baseline KB Source
+  - "[[/kb/sources/<year>/<slug>]]"
+```
+
+注意:`/kb/` 前缀(因为 PRD / Source 都在 `kb/` 下,而 `kb/concepts/` 不带),bundle-relative 起点是 repo 根。
+
+### 1.6 Plan type 专属 frontmatter 字段(SKILL 2 约束)
+
+`type=Plan` 的页面**必须含下列字段**(在通用 7 字段之上):
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `plan_type` | enum | ✅ | 子类型:`tech-solution` / `architecture-design` / `pricing-update` / 等 |
+| `related_prd` | string | ✅ | 双向链接 `[[/kb/prds/<slug>]]`,**SKILL 2 Hard Gate #7 强制** |
+| `reference_projects` | list[string] | ✅ | baseline slug 列表(从 KB 反查),**至少 1 个** |
+| `total_quote_cny` | float | ⚠️ 按需 | 造价类方案必填(总价),其他类型可省 |
+| `confidence_score` | float | ✅ | 0-1,**Phase 1 反查输出**,< 0.7 触发风险标注 |
+| `risk_flags` | list[string] | ✅ | 结构化风险标签(对应正文 §5),**与正文风险表行数 = N:1 关系** |
+| `summary_table` | string | ✅ | 摘要表(纯文本 markdown 表格),**SKILL 2 phase 2 输出的 summary_table 直接落 frontmatter** |
+| `unit_price_analysis` | list[dict] | ⚠️ 按需 | 造价类方案必填,每子系统 5 分项 `{subsystem, labor_pct, material_pct, machine_pct, management_pct, profit_pct, unit_cny_per_m2}`,**每个百分比必须 ≥ 1 个 KB Source 引用**(SKILL 2 字段约束) |
+| `breakdown_by_subsystem` | dict | ⚠️ 按需 | 造价类方案必填,`{subsystem_name: pct}`,各 pct 之和应 = 100 |
+
+**Plan 9 段强制结构**(SKILL 2 Phase 3 输出模板):
+
+```
+## 1. 方案摘要 (Summary)        — 核心结论 + 适配场景 + 关键风险数
+## 2. 计算模型 (Calculation)     — baseline 数据 + 子系统分解 + 敏感性
+## 3. 关键技术决策 (Tech Decisions) — 子系统决策 + 设计标准 + 工艺路线
+## 4. 实施步骤 (Implementation)  — 阶段划分 + 关键路径
+## 5. 风险点与对策 (Risks)       — 表格,行数 = frontmatter risk_flags 数
+## 6. 不适用范围 (Out of Scope)  — ≥ 3 行排除条款
+## 7. 验收标准 (Acceptance)      — 对应 PRD §6,逐条 [x]
+## 8. 维护与版本 (Maintenance)   — 基线年度 + 刷新触发 + 降级路径
+## 9. 关联 KB (References)       — PRD + Source + 后续 SKILL
+```
+
+**Plan 与 Source / PRD 的关系**:
+
+```
+PRD (kb/prds/<slug>.md)         — 需求输入
+  ↓ kb-tech-solution (SKILL 2)
+Plan (kb/plans/<slug>-v<N>.md)  — 技术方案
+  ↓ kb-tech-review (SKILL 3)    — 评审
+Plan.status = active            — 通过评审
+  ↓ kb-just-coding (SKILL 4)    — 落地编码
+```
+
 ---
 
 ## 2. 目录结构(OKF 兼容)
