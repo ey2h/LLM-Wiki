@@ -39,17 +39,20 @@ updated: 2026-06-26
 
 - 暂未启用(本项目主要是文档 KB,代码项目用独立 vault)
 
+### Plans(设计方案)
+
+- [[plans/curtain-wall-quote-v1-v1]] — 幕墙与外装修工程造价估算方案 v1(by SKILL 2, 2026-06-27)
+  - 🟡 reviewed by [[reviews/curtain-wall-quote-v1-v1-20260627]] (35/50, needs_revision)
+
+### Reviews(技术评审)
+
+- [[reviews/curtain-wall-quote-v1-v1-20260627]] — Plan curtain-wall-quote-v1-v1 评审(SKILL 3 首次跑通,35/50 needs_revision)
+
 ### Queries(问答存档)
 
 - 待 kb-qa 自动追加
 
 ### Playbooks(SOP)
-
-- 待写
-
-### Plans(设计方案)
-
-- [[plans/curtain-wall-quote-v1-v1]] — 幕墙与外装修工程造价估算方案 v1(by SKILL 2, 2026-06-27)
 
 - 待写
 

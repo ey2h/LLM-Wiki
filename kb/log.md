@@ -77,3 +77,13 @@ _(本文件由 LLM 维护,任何 ≥10 页变更必追加记录)_
 - baseline:`kb/sources/2012/changzhou-zhonghang-quote-2708.md`
 - schema_gate 20/20 绿灯
 - 暴露 SKILL 2 缺陷 3 项(已记入下条 commit)
+
+## 2026-06-27 — SKILL 3 首次跑通 + 评审第一个 Plan
+
+- 新 SKILL:`skills/kb-tech-review/SKILL.md`(12.5KB,9 段齐全,5 轴评审)
+- 评审产出:`kb/reviews/curtain-wall-quote-v1-v1-20260627.md`(7.9KB)
+- 判定:🟡 needs_revision(总分 35/50)
+- 修复项:2 critical(D2 风险脱节 + C4 5 分项无 KB 引用) + 3 minor
+- schema_gate 21/21 绿灯(新增 Review type + VALID_TYPES + TYPE_TO_DIR)
+- KB-META §1.4 新增 Review type(技术评审报告 → `kb/reviews/`)
+- commit: `b4e75c1`(含 SKILL kb-doc-convert + pyyaml 集成)

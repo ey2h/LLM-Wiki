@@ -200,17 +200,18 @@ solution = {
    confidence_score: {0-1}
    ---
    ```
-3. **构造正文**(8 段):
-   - `## 1. PRD 摘要`(从 prd 浓缩)
-   - `## 2. KB 反查结果`(列出 baselines + 关键决策)
-   - `## 3. 技术方案`(summary_table + breakdown)
-   - `## 4. 综合单价分析`(unit_price_analysis 详情)
-   - `## 5. 风险与偏差`(risk_flags)
-   - `## 6. 验收对照`(PRD §6 acceptance checklist,逐条)
-   - `## 7. 反例自检`(PRD §7 anti_patterns,逐条 ✓/✗)
-   - `## 8. 后续`(触发 kb-tech-review)
-4. **写文件**:`kb/plans/<slug>.md`
-5. **更新 kb/index.md**(在 `plans/` 段加一行)
+3. **构造正文**(9 段,严格按 KB-META §1.6 Plan 9 段强制结构):
+   - `## 1. 方案摘要 (Summary)` — 核心结论 + 适配场景 + 关键风险数(对应 frontmatter `summary_table` 的高层概述)
+   - `## 2. 计算模型 (Calculation Model)` — baseline 数据 + 子系统分解 + 单方敏感性
+   - `## 3. 关键技术决策 (Technical Decisions)` — 子系统决策表 + 设计标准 + 工艺路线
+   - `## 4. 实施步骤 (Implementation Steps)` — 阶段划分表 + 关键路径图
+   - `## 5. 风险点与对策 (Risks)` — 表格,**行数 = frontmatter `risk_flags` 个数**(每条 risk_flag 必须在此有解释 + 对策)
+   - `## 6. 不适用范围 (Out of Scope)` — ≥ 3 行排除条款
+   - `## 7. 验收标准 (Acceptance Criteria)` — 对应 PRD §6,**逐条 `[x]` 已满足 + 必含证据链**
+   - `## 8. 维护与版本 (Maintenance)` — 基线年度 + 刷新触发条件 + 降级路径
+   - `## 9. 关联 KB (References)` — PRD 双向链接 + Source baseline 链接 + 后续 SKILL 消费清单
+4. **写文件**:`kb/plans/<slug>-v<N>.md`(N = prd.version)
+5. **更新 kb/index.md**(在 `### Plans` 段加一行)
 6. **更新 kb/log.md**(追加本次方案记录)
 
 ### 输出
@@ -282,8 +283,8 @@ solution = {
 
 ## Output Quality Checklist
 
-- [ ] Plan frontmatter 必填字段齐(type=Plan + related_prd + reference_projects)
-- [ ] Plan 9 段齐全(## 1-9)
+- [ ] Plan frontmatter 必填字段齐(type=Plan + related_prd + reference_projects + plan_type + confidence_score + risk_flags + summary_table + total_quote_cny + unit_price_analysis + breakdown_by_subsystem)
+- [ ] Plan 9 段齐全(## 1-9 按 KB-META §1.6 Plan 强制结构)
 - [ ] `related_prd` 双向链接回 PRD(`kb/prds/<slug>.md`)
 - [ ] `reference_projects` 全部在 `kb/sources/` 下能找到
 - [ ] `summary_table` 行数 = `sub_systems` 数量

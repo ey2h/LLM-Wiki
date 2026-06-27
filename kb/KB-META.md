@@ -97,6 +97,7 @@ version: 0.1
 | `Query` | 有价值的问答存档 | `kb/queries/` |
 | `Playbook` | 流程性文档(类似 SOP) | `kb/playbooks/` |
 | `Plan` | 设计方案 | `kb/plans/` |
+| `Review` | 技术评审报告 | `kb/reviews/` |
 
 ### 1.5 链接形式(OKF 推荐)
 
