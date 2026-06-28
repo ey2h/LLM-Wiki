@@ -100,7 +100,7 @@ EXTRACT_SCRIPT="/home/jack/LLM-Wiki/scripts/extract_md_images.py"  # 2026-06-27:
 #   - 后台 markitdown × 2 + 扫描 PDF 同步 → 整体吞吐 ×2-3
 #   - 内存峰值 8-10G,需要 12G+ available 留 5G buffer
 # 备用方案:用 systemd user service 跑 daemon 脱离 hermes-gateway 控制(待定)
-MAX_PARALLEL="${MAX_PARALLEL:-2}"          # v11.4 默认 2 = 2 个后台 worker 并发
+MAX_PARALLEL="${MAX_PARALLEL:-4}"          # v11.7: 2 → 4 (内存 30G,放宽并发;hermes-gateway 杀频率下降)
 BATCH_SCAN_LIMIT="${BATCH_SCAN_LIMIT:-3}"  # v11 新增:每个 batch 内最大扫描文件数
 SCAN_CACHE_DIR="${LOG_DIR}/.scan_cache"     # v11 新增:扫描判断 cache(避免每批重复探测)
 mkdir -p "$SCAN_CACHE_DIR"
@@ -478,7 +478,20 @@ convert_year() {
     #
     # v11.6 实现: 启动时一次性写出 /tmp/.files_${y}.list + 同时初始化 bg_queue 预先填充 office/text
     local files_list="/tmp/.files_${y}.list"
-    (cd "$SRC" && find . -type f -not -path './@eaDir/*' 2>/dev/null | sed 's|^\./||') > "$files_list"
+    # v11.7: 按扩展名排序 — .docx/.xlsx/.pptx/.txt/.log 先跑 (markitdown 快,几秒),
+    #        .pdf 后跑 (mineru VLM 慢,1-3 分钟)。
+    # 原理:提取 basename 扩展名,office/text (0) 排前,pdf (1) 排后,其他 (2) 末尾。
+    # sort key: "<ext_priority>|<original_path>" 保证同优先级的保留 find inode 顺序。
+    (cd "$SRC" && find . -type f -not -path './@eaDir/*' 2>/dev/null | sed 's|^\./||' \
+       | awk -F. '{
+           ext=tolower($NF);
+           pri=2;
+           if (ext=="docx"||ext=="doc"||ext=="xlsx"||ext=="xls"||ext=="pptx"||ext=="ppt"||ext=="txt"||ext=="log"||ext=="csv"||ext=="md"||ext=="rtf"||ext=="odt"||ext=="ods"||ext=="odp") pri=0;
+           else if (ext=="pdf") pri=1;
+           printf "%d|%s\n", pri, $0;
+         }' \
+       | sort -t'|' -k1,1n -k2 \
+       | cut -d'|' -f2) > "$files_list"
     local total_files=$(wc -l < "$files_list")
     echo "[v11.6] 预扫描文件清单: $total_files 个 → $files_list"
 
