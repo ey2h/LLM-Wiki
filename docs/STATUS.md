@@ -92,12 +92,28 @@
   - 整理 kb-md/ 抽进 kb/ 知识库
 
 ## 🔧 待做小项
-- [ ] `docs/INDEX.md` 加 serve-gemma 全局脚本 + refresh_smb_mount.sh + convert_year_2012.sh 引用
+- [ ] `docs/INDEX.md` 加 serve-gemma 全局脚本 + refresh_smb_mount.sh + convert_year.sh 引用
 - [ ] `README.md` 快速开始加 NFS 接入说明
 - [ ] `serve-gemma swap` 子命令(E4B/12B 一键切换)
-- [ ] `convert_year.sh <year>` 通用脚本(支持任意年份,2012 是特例)
+- [x] `convert_year.sh <year>` 通用脚本(2026-06-29 完成:`scripts/convert_year.sh`)
 - [ ] GPU 利用率优化:mineru 串行跑扫描件是瓶颈,可考虑并行 2 个 PDF(显存吃满)
 - [ ] 阈值优化:`avg < 30` 偏宽,有些空 PDF 也被判非扫描,降阈值到 10 可补救
+
+## 🩺 守护与监控(2026-06-29 加)
+- **`scripts/ai-rd-watchdog.sh`**:每 5 分钟巡查
+  - RSS 总量 >= 24 GiB → 杀 stale mineru/VLLM grandchild
+  - VLLM EngineCore >= 3 → 同上
+  - NFS 掉线 → 报警
+  - 内部 `configure_oomd` 写 user systemd 阈值 `MemoryHigh=24G` / `MemoryMax=28G`
+- **`scripts/ai-rd-watchdog.service`**:user systemd unit
+  - 已 enable + start (`loginctl enable-linger jack`)
+  - 机器开机自动起,死了 `Restart=on-failure` 自动复活
+  - `MemoryHigh=100M / Max=200M` 限 watchdog 自身
+- **OOM 事故复盘**:
+  - 06-28 00:25 OOM 杀死了 `hermes-gateway` 启动的 watch session `python PID 373242` (RSS 805M, VM 3.86G)
+  - 同时 VLLM::EngineCore PID 402585 在 RSS 1.07 GB,MinerU 子进程 RSS 94 MB
+  - 根系原因:无人对 user.slice 设 MemoryHigh,session 累加触顶
+  - 修复:MemoryHigh=24G 给 user.slice 整体阈值,让 systemd-oomd 优先 throttle 不 kill
 
 ## 📦 当前 Git
 

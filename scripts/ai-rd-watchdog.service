@@ -1,0 +1,22 @@
+# ai-rd-watchdog.service — user systemd unit
+# 安装:cp 到 ~/.config/systemd/user/ 然后 systemctl --user enable ai-rd-watchdog.service
+# 看状态:systemctl --user status ai-rd-watchdog
+
+[Unit]
+Description=ai-rd-system daemon watchdog (RSS + VLLM stale cleanup + NFS health)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/jack/projects/ai-rd-system/scripts/ai-rd-watchdog.sh _loop
+Restart=on-failure
+RestartSec=30
+# 让 watchdog 跟着登录会话走,登出后自动停止;linger 用户
+# 这样保持机器重启后自动起来(需要 loginctl enable-linger jack)
+# MemoryHigh/Max 给 watchdog 本身(100M 足够)
+MemoryHigh=100M
+MemoryMax=200M
+
+[Install]
+WantedBy=default.target
