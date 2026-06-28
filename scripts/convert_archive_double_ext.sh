@@ -63,11 +63,8 @@ cleanup_daemon() {
         echo "=== systemd hermes-gateway 状态 ==="
         systemctl --user status hermes-gateway.service 2>&1 | head -25 || echo "(systemctl 失败)"
     } > "$logfile" 2>&1
-    # 杀所有子进程(mineru/markitdown/libreoffice)
-    pkill -P $$ 2>/dev/null
-    pkill -f "mineru --keep-data-uris" 2>/dev/null
-    pkill -f "markitdown --keep-data-uris" 2>/dev/null
-    pkill -f "libreoffice --headless" 2>/dev/null
+    # 杀所有子进程 + 孙子(v11.8:用 process group + 递归 pgrep -P)
+    trap_kill_tree "$$"
 }
 trap 'cleanup_daemon EXIT' EXIT
 trap 'cleanup_daemon SIGTERM; exit 143' TERM
@@ -79,6 +76,36 @@ trap 'cleanup_daemon SIGHUP; exit 129' HUP
 # 导致所有扫描 PDF 'memory allocation of 8388608 bytes failed' 全失败。
 
 NFS="/mnt/nfs"
+# 2026-06-29 v11.8:cleanup_daemon 强化 — 杀 process group 全树(孙子 vllm/markitdown/pdftotext)
+# 之前 pkill -P $$ 只捕直属子进程,vllm/markitdown spawn 出的 grandchild leak 成 stale (06-28 OOM 触点)
+# 新版:用 pgrep -P + 递归直至根 + kill整个进程组(pgid = $$)
+trap_kill_tree() {
+    # 先记录自己的进程组 PGID
+    local pgid
+    pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+    if [ -n "$pgid" ]; then
+        # 杀整个进程组(包括孙子、孙孙子)
+        kill -KILL -"$pgid" 2>/dev/null || true
+    fi
+    # 兜底再扫一遍:任何 PPID 链能追到 $$ 的进程都杀
+    local pids_to_kill=""
+    local scan_pid=$1
+    while [ -n "$scan_pid" ] && [ "$scan_pid" != "0" ] && [ "$scan_pid" != "1" ]; do
+        pids_to_kill="$pids_to_kill $scan_pid"
+        local next
+        next=$(pgrep -P "$scan_pid" 2>/dev/null | tr '\n' ' ')
+        if [ -z "$next" ]; then break; fi
+        scan_pid=$(echo "$next" | awk '{print $1}')
+    done
+    [ -n "$pids_to_kill" ] && kill -KILL $pids_to_kill 2>/dev/null || true
+    # 最后再针对 stderr 已知漏网的:
+    pkill -KILL -f "mineru --keep-data-uris" 2>/dev/null || true
+    pkill -KILL -f "markitdown --keep-data-uris" 2>/dev/null || true
+    pkill -KILL -f "libreoffice --headless" 2>/dev/null || true
+    pkill -KILL -f "VLLM::EngineCore" 2>/dev/null || true
+    pkill -KILL -f "vllm.*serve" 2>/dev/null || true
+    pkill -KILL -f "torch_compile_cache" 2>/dev/null || true
+}
 SRC_BASE="$NFS/项目存档"
 DST_BASE="$NFS/LLM-WIKI/raw"
 LOG_DIR="/home/jack/projects/ai-rd-system/toolchain/logs"
@@ -100,7 +127,7 @@ EXTRACT_SCRIPT="/home/jack/LLM-Wiki/scripts/extract_md_images.py"  # 2026-06-27:
 #   - 后台 markitdown × 2 + 扫描 PDF 同步 → 整体吞吐 ×2-3
 #   - 内存峰值 8-10G,需要 12G+ available 留 5G buffer
 # 备用方案:用 systemd user service 跑 daemon 脱离 hermes-gateway 控制(待定)
-MAX_PARALLEL="${MAX_PARALLEL:-4}"          # v11.7: 2 → 4 (内存 30G,放宽并发;hermes-gateway 杀频率下降)
+MAX_PARALLEL="${MAX_PARALLEL:-4}"          # v11.8:保持 4,watchdog 已部署 24G MemoryHigh 兜底
 BATCH_SCAN_LIMIT="${BATCH_SCAN_LIMIT:-3}"  # v11 新增:每个 batch 内最大扫描文件数
 SCAN_CACHE_DIR="${LOG_DIR}/.scan_cache"     # v11 新增:扫描判断 cache(避免每批重复探测)
 mkdir -p "$SCAN_CACHE_DIR"

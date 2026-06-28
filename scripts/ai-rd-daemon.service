@@ -1,0 +1,37 @@
+# ai-rd-daemon.service — 把 convert_archive_double_ext.sh 当 systemd user service 跑
+# 脱离 hermes-gateway 控制,机器开机自动起,死了 Restart=on-failure 复活
+#
+# 用法:
+#   cp scripts/ai-rd-daemon.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable ai-rd-daemon.service
+#   # 接 watch 2019 (重头戏,5000+ 文件)
+#   systemctl --user start ai-rd-daemon.service
+#   journalctl --user -u ai-rd-daemon -f
+#
+# 配合 watchdog ai-rd-watchdog.service 一起跑(rss 监控 + stale cleanup)
+
+[Unit]
+Description=ai-rd-system convert daemon (MAX_PARALLEL=4, sort by extension)
+# 依赖 NFS 起来
+After=nfs-client.target
+Wants=nfs-client.target
+# 等 watchdog 先就绪
+After=ai-rd-watchdog.service
+
+[Service]
+Type=simple
+# 默认跑 2018..2025 范围,可通过 ExecStart 覆盖
+ExecStart=/home/jack/projects/ai-rd-system/scripts/convert_archive_double_ext.sh all
+# 资源硬上限:跟 watchdog MemoryHigh=24G 整体协调
+MemoryHigh=18G
+MemoryMax=22G
+# 失败自动重启,但要退避一段时间(RSS 高时别立刻打)
+Restart=on-failure
+RestartSec=60
+TimeoutStopSec=120
+StandardOutput=append:/home/jack/projects/ai-rd-system/toolchain/logs/daemon-systemd.log
+StandardError=append:/home/jack/projects/ai-rd-system/toolchain/logs/daemon-systemd.log
+
+[Install]
+WantedBy=default.target
