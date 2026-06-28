@@ -38,13 +38,15 @@ EXTRACT_SCRIPT="/home/jack/LLM-Wiki/scripts/extract_md_images.py"  # 2026-06-27:
 #   - 非扫描 PDF + 所有 Office + txt/log:后台并发(max N worker)
 #   - 每 batch 收 N 个非扫描任务 + 0-N 个扫描任务,扫描在 batch 内同步跑完后 wait 全部后台
 #
-# 2026-06-27 v11.3:MAX_PARALLEL 默认从 2 降到 0 (完全单线程,无后台 worker)
-# 原因:v11.2 (MAX_PARALLEL=2) 仍然 OOM-kill 过(hermes-gateway systemd 重启连带 kill 后台 worker)
-# 单线程模式:扫描 PDF 同步跑(独占 GPU)+ Office/text 同步跑(用 CPU),完全不并发
-# 内存峰值:仅 1 个 vllm + 1 个 markitdown 同时存在 = ~6-8G,留 7G 余量给 hermes-gateway + 系统
-# 吞吐损失:后台并发从 4 → 0,但因为扫描 PDF 占主导时间(>80%),Office 并发增益很小,整体影响 <15%
-# 优势:永不再触发 OOM;hermes-gateway 重启不会连累(没有后台进程要清理)
-MAX_PARALLEL="${MAX_PARALLEL:-0}"          # v11.3 默认 0 = 单线程(无后台)
+# 2026-06-27 v11.4:MAX_PARALLEL 默认 0 → 2 (改回并发,接受偶尔被 hermes-gateway 重启杀)
+# 原因:v11.3 (MAX_PARALLEL=0) 单线程太慢,2012 跑了 8 分钟只处理 1 个文件
+# 实际原因不是 OOM/过热,是 hermes-gateway systemd 重启(00:25)时 kill background daemon
+# 改回 MAX_PARALLEL=2:
+#   - 接受偶尔 daemon 被 hermes 重启连带 SIGKILL(daemon 启动会自动 resume skip_exists)
+#   - 后台 markitdown × 2 + 扫描 PDF 同步 → 整体吞吐 ×2-3
+#   - 内存峰值 8-10G,需要 12G+ available 留 5G buffer
+# 备用方案:用 systemd user service 跑 daemon 脱离 hermes-gateway 控制(待定)
+MAX_PARALLEL="${MAX_PARALLEL:-2}"          # v11.4 默认 2 = 2 个后台 worker 并发
 BATCH_SCAN_LIMIT="${BATCH_SCAN_LIMIT:-3}"  # v11 新增:每个 batch 内最大扫描文件数
 SCAN_CACHE_DIR="${LOG_DIR}/.scan_cache"     # v11 新增:扫描判断 cache(避免每批重复探测)
 mkdir -p "$SCAN_CACHE_DIR"
