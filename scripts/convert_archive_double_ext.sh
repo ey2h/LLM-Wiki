@@ -18,7 +18,61 @@
 #   bash convert_archive_double_ext.sh <year>            # 跑单年
 #   bash convert_archive_double_ext.sh all               # 跑 2013-2026
 #   bash convert_archive_double_ext.sh <year> --dry-run  # 演练
-set -e
+set -o pipefail  # v11.5:不用 -e (允许 trap 内 nvidia-smi/dmesg 失败),不用 -u (LOG 未定义会触发)
+
+# 2026-06-28 v11.5:加 EXIT trap 记 daemon 死因到 log + 杀所有子进程
+# 之前 daemon 被 hermes-gateway systemd 重启连带 SIGKILL,只看到进程没了,不知道死因
+# trap 会在以下信号时触发,记日志到 logs/convert/daemon_exit_<timestamp>.log:
+#   EXIT (正常退出) / SIGTERM (15) / SIGINT (2) / SIGHUP (1)
+# 报告内容:信号 + 退出码 + 当前目录 + 累计运行时间 + 死前最后处理的 10 个文件 +
+#           子进程列表 + GPU 状态 + 内存状态 + dmesg OOM 痕迹 + hermes-gateway systemd 状态
+cleanup_daemon() {
+    local exit_code=$?
+    local signal=${1:-EXIT}
+    local logfile="/home/jack/LLM-Wiki/logs/convert/daemon_exit_$(date +%Y%m%d_%H%M%S).log"
+    {
+        echo "=== Daemon Exit Report ==="
+        echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "信号: $signal"
+        echo "退出码: $exit_code"
+        echo "当前目录: $(pwd)"
+        echo "Daemon 累计运行: $(ps -o etime= -p $$ 2>/dev/null || echo 'N/A')"
+        echo ""
+        echo "=== 死前最后处理的 10 个文件 ==="
+        # 找最近修改的 toolchain log 文件(LOG 变量在 convert_year 内部,trap 内不可见)
+        local _last_toolchain_log
+        _last_toolchain_log=$(ls -t /home/jack/projects/ai-rd-system/toolchain/logs/convert_*_double_ext_*.log 2>/dev/null | head -1)
+        if [ -n "$_last_toolchain_log" ] && [ -f "$_last_toolchain_log" ]; then
+            grep -E '\[(SCAN|MD|PDF|TXT) (OK|FAIL)' "$_last_toolchain_log" 2>/dev/null | tail -10 || echo "(toolchain log 无匹配)"
+        else
+            echo "(找不到 toolchain log,daemon 启动阶段就死)"
+        fi
+        echo ""
+        echo "=== 子进程 (应该被 cleanup 杀掉) ==="
+        ps -eo pid,ppid,pcpu,pmem,rss,cmd --forest 2>/dev/null | grep -B1 -A1 "convert_archive_double_ext" | head -20 || echo "(无子进程)"
+        echo ""
+        echo "=== 当前 GPU 状态 ==="
+        nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv 2>/dev/null || echo "(nvidia-smi 失败)"
+        echo ""
+        echo "=== 内存 ==="
+        free -h | head -2
+        echo ""
+        echo "=== OOM 痕迹 (dmesg 最近 10 分钟) ==="
+        dmesg --since "10 min ago" 2>/dev/null | grep -iE "oom|killed" | tail -10 || echo "(dmesg 无权限或无 OOM)"
+        echo ""
+        echo "=== systemd hermes-gateway 状态 ==="
+        systemctl --user status hermes-gateway.service 2>&1 | head -25 || echo "(systemctl 失败)"
+    } > "$logfile" 2>&1
+    # 杀所有子进程(mineru/markitdown/libreoffice)
+    pkill -P $$ 2>/dev/null
+    pkill -f "mineru --keep-data-uris" 2>/dev/null
+    pkill -f "markitdown --keep-data-uris" 2>/dev/null
+    pkill -f "libreoffice --headless" 2>/dev/null
+}
+trap 'cleanup_daemon EXIT' EXIT
+trap 'cleanup_daemon SIGTERM; exit 143' TERM
+trap 'cleanup_daemon SIGINT; exit 130' INT
+trap 'cleanup_daemon SIGHUP; exit 129' HUP
 
 # 2026-06-27:跟 GitHub ey2h/LLM-Wiki parse_pdf.sh 保持一致 — 不设 ulimit,
 # 信任 mineru + 系统 OOM killer 自动管内存。实测 ulimit -m 会破坏 vllm 8MB KV cache mmap,
