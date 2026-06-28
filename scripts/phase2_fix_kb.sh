@@ -54,14 +54,24 @@ log "KB_ROOT: $KB_ROOT  DRY_RUN: $DRY_RUN  ROLLBACK: $ROLLBACK  RESUME: $RESUME"
 [[ $TYPE2_LIMIT -gt 0 ]] && log "TYPE2_LIMIT: $TYPE2_LIMIT"
 
 # 收集 .md,分类
+# 排除 mineru 中间产物: input.md / input_*.json / layout.json / content_list.json 等
 declare -a type1_files=()       # 有 asset_dir
 declare -a type2_files=()       # 无 asset_dir
 declare -a inner_dup_files=()   # 内层重复
+declare -a skipped=()           # 跳过 (mineru 中间产物)
 while IFS= read -r md_file; do
     dir=$(dirname "$md_file")
     base=$(basename "$md_file")
     stem="${base%.md}"
     parent_dir=$(basename "$dir")
+
+    # 排除 mineru 中间产物
+    case "$base" in
+        input.md|input_*.md|*.layout.md|*.content_list.md)
+            skipped+=("$md_file")
+            continue
+            ;;
+    esac
 
     # 内层重复:父目录 == stem
     if [[ "$parent_dir" == "$stem" ]]; then
@@ -80,6 +90,7 @@ done < <(find "$KB_ROOT" -name "*.md" -type f 2>/dev/null | sort)
 log "Type 1 (有 asset_dir): ${#type1_files[@]} 个"
 log "Type 2 (无 asset_dir): ${#type2_files[@]} 个"
 log "内层重复 .md: ${#inner_dup_files[@]} 个 (只删)"
+log "跳过 (mineru 中间产物): ${#skipped[@]} 个"
 
 # 应用限制
 [[ $TYPE1_LIMIT -gt 0 && ${#type1_files[@]} -gt $TYPE1_LIMIT ]] && type1_files=("${type1_files[@]:0:$TYPE1_LIMIT}")
