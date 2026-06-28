@@ -183,15 +183,24 @@ run_one() {
     local result_tag=""  # v11.1:成功/失败标记,主进程 stdout 可见
 
     if [ "$ext_lower" = "pdf" ]; then
-        # PDF CAD 图纸跳过(2026-06-27 用户要求)
-        # 命名模式: S-XX-XX-XX.pdf (结构图) / S-XX-L9-XX.pdf / CW-AXX-NN.pdf (幕墙图)
-        # 这些是 CAD 输出 PDF,内容是图纸非文本,对 KB 无用
+        # PDF CAD 图纸跳过(2026-06-27 + 2026-06-28 扩展)
+        # v11.6 新增: 路径含 /cad/ (大小写不敏感) + 文件名 [大写][大写][数字]+ 命名模式 (PD/PE/PG/...图号)
+        # 命名模式:
+        #   - S-XX-XX-XX.pdf (结构图)
+        #   - S-XX-L9-XX.pdf
+        #   - CW-AXX-NN.pdf (幕墙图 Curtain Wall)
+        #   - [A-Z][A-Z][0-9]+(-[0-9]+)?.pdf (CAD 图号,如 PD610/PE030/PD300-1)
+        # 注: 没要求 P 开头, 大写字母 + 大写字母 + 数字 就够 (避免 PZW123.pdf 这种误伤)
         local base_no_ext="${base%.pdf}"
-        # S- 开头(结构图)+ 至少 2 段短码(数字或字母)
-        # CW- 开头(幕墙图 Curtain Wall)
-        if echo "$base_no_ext" | grep -qE '^(S(-[A-Za-z0-9]+){2,}|CW-[A-Za-z0-9]+-[0-9]+)'; then
+        if echo "$base_no_ext" | grep -qE '^(S(-[A-Za-z0-9]+){2,}|CW-[A-Za-z0-9]+-[0-9]+|[A-Z][A-Z][0-9]+(-[0-9]+)?)'; then
             count_skip=$((count_skip + 1))
             echo "  [SKIP-CAD-PDF] $rel" >> "$LOG"
+            return
+        fi
+        # v11.6 新增: 路径含 /cad/ (大小写不敏感) 也算 CAD 图纸
+        if echo "$src" | grep -qiE '/cad/'; then
+            count_skip=$((count_skip + 1))
+            echo "  [SKIP-CAD-PDF path] $rel" >> "$LOG"
             return
         fi
         local probe=$(python3 "$PY_SCANNER" "$src" 30 2>&1)
@@ -449,6 +458,77 @@ convert_year() {
         rm -f "$tmp_counts"
     }
 
+    # v11.6 预先 markitdown 队列:
+    # 把 find 输出 tee 到 named pipe,主循环 read + 后台并行预读 office/text 文件塞 bg_queue
+    # 这样即使 main loop 在同步跑扫描 PDF,markitdown worker 已经在跑(空闲时间不浪费)
+    #
+    # 策略:
+    #   1. find 输出 → fifo
+    #   2. main loop 从 fifo read 处理 (扫描 PDF 同步,其他塞 bg_queue)
+    #   3. 后台 "prefill" 任务**主动**从 fifo 后续 read office/text,**预先**塞 bg_queue
+    #
+    # 但 fifo 单 reader 限制,所以方案简化:
+    #   - 主循环一次 read 1 个处理
+    #   - 主循环在每行处理**前**,如果 bg_queue 未满,**主动 peek 后续 N 个 office/text 文件**
+    #   - 用文件描述符复制 (exec 3< <(find)) 保存可重读的副本
+    #
+    # 实施难点:bash 进程替换只能 read 一次。
+    # 最稳的方案: 把 find 输出全部写到 /tmp/.files_${y}.list,主循环一次 read 1 个处理,
+    # 处理每个文件时,检查 bg_queue 长度,如果 < MAX_PARALLEL,**主动从 list 里 prefill**
+    #
+    # v11.6 实现: 启动时一次性写出 /tmp/.files_${y}.list + 同时初始化 bg_queue 预先填充 office/text
+    local files_list="/tmp/.files_${y}.list"
+    (cd "$SRC" && find . -type f -not -path './@eaDir/*' 2>/dev/null | sed 's|^\./||') > "$files_list"
+    local total_files=$(wc -l < "$files_list")
+    echo "[v11.6] 预扫描文件清单: $total_files 个 → $files_list"
+
+    # v11.6 预先 markitdown 队列:
+    # 在主循环开始前,主动把所有 office/text 文件**预先**塞进 bg_queue
+    # 这样 main loop 处理扫描 PDF 同步跑时,bg_queue 已经满了,markitdown worker 自动启动
+    #
+    # 优化:不全部预塞(可能 OOM),而是**预留 MAX_PARALLEL** 个空位给主循环新文件,
+    # 预先塞 (MAX_PARALLEL * 2) 个 office/text 文件
+    local _prefill_count=0
+    local _prefill_max=$MAX_PARALLEL  # v11.6 fix: 只塞 MAX_PARALLEL 个,避免一次启 8 worker OOM
+    while IFS= read -r rel; do
+        [ -z "$rel" ] && continue
+        case "$rel" in
+            @eaDir/*|.DS_Store) continue ;;
+        esac
+        src="$SRC/$rel"
+        [ -f "$src" ] || continue
+        case "$(basename "$src")" in
+            ~\$*) continue ;;
+        esac
+        base=$(basename "$src")
+        ext_lower="$(echo "${base##*.}" | tr '[:upper:]' '[:lower:]')"
+        # 只预填 office/text 和非扫描 PDF (但扫描判断要 call python,先不预填非扫描 PDF)
+        case "$ext_lower" in
+            docx|doc|xlsx|xls|pptx|ppt|txt|log)
+                # 检查是否已存在 (skip_exists)
+                # v11.6 fix: 正确命名规则是 ${rel}.md (rel 已经包含 .docx 等扩展)
+                # 例: 工作进度确认及满足汇报要求.docx → 工作进度确认及满足汇报要求.docx.md
+                local dst_check="$DST/$rel.md"
+                # txt/log 例外: foo.txt → foo.txt.md (rel 已经是 .txt 了)
+                case "$ext_lower" in
+                    txt|log) dst_check="$DST/$rel.md" ;;  # rel=foo.txt, dst=foo.txt.md (不变)
+                    *) dst_check="$DST/$rel.md" ;;  # rel=xx.docx, dst=xx.docx.md
+                esac
+                [ -f "$dst_check" ] && continue
+                bg_queue+=("$src")
+                _prefill_count=$((_prefill_count + 1))
+                [ $_prefill_count -ge $_prefill_max ] && break
+                ;;
+        esac
+    done < "$files_list"
+    echo "[v11.6] 预先 markitdown 队列: $_prefill_count 个 office/text 文件已塞入 bg_queue"
+    # v11.6: bg_queue 已经预填,主循环处理扫描 PDF 时 markitdown worker 自动启动
+    # 立即 flush 让 worker 起来 (不等 main loop 处理)
+    if [ $_prefill_count -gt 0 ]; then
+        echo "[v11.6] 立即 flush_bg_queue 启动 $_prefill_count 个 markitdown worker"
+        flush_bg_queue
+    fi
+
     while IFS= read -r rel; do
         [ -z "$rel" ] && continue
         case "$rel" in
@@ -507,7 +587,10 @@ convert_year() {
         if [ ${#bg_queue[@]} -ge $MAX_PARALLEL ]; then
             flush_bg_queue
         fi
-    done < <(cd "$SRC" && find . -type f -not -path './@eaDir/*' 2>/dev/null | sed 's|^\./||')
+    done < "$files_list"
+
+    # v11.6: 清理 tmp files_list
+    rm -f "$files_list"
 
     # v11 新增:文件末尾 flush 剩余后台任务
     flush_bg_queue
