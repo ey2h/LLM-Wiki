@@ -505,20 +505,23 @@ convert_year() {
     #
     # v11.6 实现: 启动时一次性写出 /tmp/.files_${y}.list + 同时初始化 bg_queue 预先填充 office/text
     local files_list="/tmp/.files_${y}.list"
-    # v11.7: 按扩展名排序 — .docx/.xlsx/.pptx/.txt/.log 先跑 (markitdown 快,几秒),
-    #        .pdf 后跑 (mineru VLM 慢,1-3 分钟)。
-    # 原理:提取 basename 扩展名,office/text (0) 排前,pdf (1) 排后,其他 (2) 末尾。
-    # sort key: "<ext_priority>|<original_path>" 保证同优先级的保留 find inode 顺序。
+    # v11.9: 交错 sort (round-robin by ext priority bucket)
+    #   - 把文件分成 [office/text] vs [pdf] vs [other],内部各保留原序
+    #   - 然后 round-robin:office_text[0] pdf[0] office_text[1] pdf[1] office_text[2] pdf[2]...
+    #   - 这样 bg_queue 永远有 markitdown 干活,不会因为 PDF 同步等 vllm 而闲置
     (cd "$SRC" && find . -type f -not -path './@eaDir/*' 2>/dev/null | sed 's|^\./||' \
-       | awk -F. '{
-           ext=tolower($NF);
-           pri=2;
-           if (ext=="docx"||ext=="doc"||ext=="xlsx"||ext=="xls"||ext=="pptx"||ext=="ppt"||ext=="txt"||ext=="log"||ext=="csv"||ext=="md"||ext=="rtf"||ext=="odt"||ext=="ods"||ext=="odp") pri=0;
-           else if (ext=="pdf") pri=1;
-           printf "%d|%s\n", pri, $0;
-         }' \
-       | sort -t'|' -k1,1n -k2 \
-       | cut -d'|' -f2) > "$files_list"
+       | awk -F. '{ext=tolower($NF); if(ext=="docx"||ext=="doc"||ext=="xlsx"||ext=="xls"||ext=="pptx"||ext=="ppt"||ext=="txt"||ext=="log"||ext=="csv"||ext=="md"||ext=="rtf"||ext=="odt"||ext=="ods"||ext=="odp") print "o|" $0; else if(ext=="pdf") print "p|" $0; else print "x|" $0}' > /tmp/.split_${y}.txt)
+    python3 -c "
+of = [l.split('|',1)[1].rstrip() for l in open('/tmp/.split_${y}.txt') if l.startswith('o|')]
+pf = [l.split('|',1)[1].rstrip() for l in open('/tmp/.split_${y}.txt') if l.startswith('p|')]
+xf = [l.split('|',1)[1].rstrip() for l in open('/tmp/.split_${y}.txt') if l.startswith('x|')]
+import itertools
+for o, p in itertools.zip_longest(of, pf):
+    if o: print(o)
+    if p: print(p)
+for x in xf: print(x)
+" > "$files_list"
+    rm -f /tmp/.split_${y}.txt
     local total_files=$(wc -l < "$files_list")
     echo "[v11.6] 预扫描文件清单: $total_files 个 → $files_list"
 
