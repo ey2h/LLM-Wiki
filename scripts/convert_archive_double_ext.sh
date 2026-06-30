@@ -8,6 +8,7 @@
 #
 # 策略(同 convert_year_2012.sh):
 #   - PDF → 先判扫描件(中间 3 页 avg char < 30 → mineru GPU,否则 pdftotext -layout)
+#   - PDF 兜底(v11.10):pdftotext 产出 < 200B 时,自动回退走 mineru(捕获 scan 判错的文件)
 #   - docx/xlsx/xls/pptx/ppt → markitdown
 #   - doc → LibreOffice headless → docx → markitdown
 #   - txt/log → 直接 cp 当 md
@@ -172,6 +173,122 @@ count_pdf_scanned_done=0
 count_md=0
 count_md_fail=0
 count_txt=0
+count_pdf_fallback=0  # v11.10:pdftotext 产出太小自动转 mineru 的次数
+
+# v11.10:mineru 处理函数(供 scan + pdftotext 兜底共用)
+# 入参:$1=src, $2=dst_file, $3=base(无.pdf), $4=rel
+# 出口:0 成功 / 1 失败
+# 副作用:成功 count_pdf_scanned_done++,失败仅 count_pdf_scanned++(已计入扫描路径)
+_process_mineru() {
+    local src="$1" dst_file="$2" base="$3" rel="$4"
+    local tmpdir=$(mktemp -d)
+    local safe_src="$tmpdir/input.pdf"
+    if ! cp "$src" "$safe_src" 2>>"$LOG"; then
+        echo "  ⚠️ cp to ascii tmp failed: $rel" >> "$LOG"
+        rm -rf "$tmpdir"; return 1
+    fi
+    if env UNSTRUCTURED_DISABLE_TELEMETRY=1 TMPDIR=/home/jack/tmp \
+        CUDA_HOME=/usr/lib/nvidia-cuda-toolkit HF_ENDPOINT=https://hf-mirror.com \
+        timeout 300 "$MN_ENV/mineru" -p "$safe_src" -o "$tmpdir" -b vlm-engine \
+        >> "$LOG" 2>&1; then
+        local found=$(find "$tmpdir" -name "*.md" -type f 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            local src_dir=$(dirname "$found")
+            local asset_dir="$(dirname "$dst_file")/${base}"
+            rm -rf "$asset_dir"; mkdir -p "$asset_dir"
+            cp -r "$src_dir"/. "$asset_dir"/
+            cp "$found" "$dst_file"
+            sed -i "s|images/|./${base}/images/|g" "$dst_file"
+            rm -rf "$tmpdir"
+            count_pdf_scanned_done=$((count_pdf_scanned_done + 1))
+            return 0
+        fi
+        echo "  ⚠️ mineru OK but no .md in $tmpdir: $rel" >> "$LOG"
+        rm -rf "$tmpdir"; return 1
+    else
+        local _exit=$?
+        echo "  ⚠️ mineru failed (exit=$_exit): $rel" >> "$LOG"
+        rm -rf "$tmpdir"; return 1
+    fi
+}
+
+# v11.11:bg-eligible 文件后台预填守护进程
+# 启动后独立读 files_list,处理 bg-eligible 文件(office/text + 非扫描 PDF)
+# 解决主循环被扫描 PDF mineru(60-120s)阻塞时,bg_queue 干渴使 worker 空转
+# 安全性:与主循环 run_one 可能有重复,但 dst 存在检查(run_one:203 附近)会跳过,主循环会
+#   看到 dst 已存在并记入 skip_exists。计数会轻微虚高(count_skip_exists+1),无伤大雅
+# 并发限制:只用 MAX_PARALLEL/2 个 worker(避免总内存 2*MAX_PARALLEL,默认 2 个)
+# 输出: 9 个 delta 计数器增量写入 _outfile,主循环末尾聚合
+_prefill_daemon_main() {
+    local _files_list="$1"
+    local _outfile="$2"
+    local _max_jobs=$((MAX_PARALLEL / 2))
+    [ "$_max_jobs" -lt 1 ] && _max_jobs=1
+    local _running=0
+    local _pids=()
+
+    while IFS= read -r rel; do
+        # 节流:后台 job 数上限
+        if [ ${#_pids[@]} -ge $_max_jobs ]; then
+            wait -p _new_pid 2>/dev/null
+            _running=$((_running - 1))
+            # 清理已结束的 pid(简单方式:重建数组)
+            local _new_pids=()
+            for p in "${_pids[@]}"; do
+                kill -0 "$p" 2>/dev/null && _new_pids+=("$p")
+            done
+            _pids=("${_new_pids[@]}")
+        fi
+
+        [ -z "$rel" ] && continue
+        case "$rel" in @eaDir/*|.DS_Store) continue ;; esac
+        local _src="$SRC/$rel"
+        [ -f "$_src" ] || continue
+        case "$(basename "$_src")" in ~\$*) continue ;; esac
+
+        local _base=$(basename "$_src")
+        local _ext_lower="$(echo "${_base##*.}" | tr '[:upper:]' '[:lower:]')"
+
+        # 判断是否 bg-eligible
+        local _is_bg=0
+        case "$_ext_lower" in
+            docx|doc|xlsx|xls|pptx|ppt|txt|log) _is_bg=1 ;;
+            pdf)
+                if [ "$(is_scanned_quick "$_src")" = "0" ]; then _is_bg=1; fi
+                ;;
+        esac
+        [ "$_is_bg" = "1" ] || continue
+
+        # 快速检查 dst 是否已存在(避免不必要的 run_one)
+        local _dst_check="$DST/$rel.md"
+        [ -f "$_dst_check" ] && continue
+
+        # 后台跑 run_one,捕获 delta 写 _outfile
+        (
+            # v11.11 fix:subshell 内 re-check,避免 main loop 和 daemon 同时 check dst 见不到、都跑 run_one 的竞态
+            [ -f "$DST/$rel.md" ] && {
+                echo "0 0 1 0 0 0 0 0 0" >> "$_outfile"  # 仅 skip_exists++ 其余 0
+                exit 0
+            }
+            local _b_total=$count_total
+            local _b_skip=$count_skip
+            local _b_skip_exists=$count_skip_exists
+            local _b_pdf_text=$count_pdf_text
+            local _b_pdf_scanned=$count_pdf_scanned
+            local _b_pdf_scanned_done=$count_pdf_scanned_done
+            local _b_md=$count_md
+            local _b_md_fail=$count_md_fail
+            local _b_txt=$count_txt
+            run_one "$_src" >> "$LOG" 2>&1
+            echo "$((count_total - _b_total)) $((count_skip - _b_skip)) $((count_skip_exists - _b_skip_exists)) $((count_pdf_text - _b_pdf_text)) $((count_pdf_scanned - _b_pdf_scanned)) $((count_pdf_scanned_done - _b_pdf_scanned_done)) $((count_md - _b_md)) $((count_md_fail - _b_md_fail)) $((count_txt - _b_txt))" >> "$_outfile"
+        ) &
+        _pids+=($!)
+        _running=$((_running + 1))
+    done < "$_files_list"
+
+    # 等剩余全部
+    wait 2>/dev/null
+}
 
 run_one() {
     local src="$1"
@@ -233,71 +350,34 @@ run_one() {
         local probe=$(python3 "$PY_SCANNER" "$src" 30 2>&1)
         local avg=$(echo "$probe" | python3 -c "import sys,json;d=json.load(sys.stdin);print(int(d['avg_chars']))" 2>/dev/null || echo "0")
         if [ "$avg" -lt 30 ]; then
-            count_pdf_scanned=$((count_pdf_scanned + 1))
+            # 扫描件:直接走 mineru(v11.10 重构到函数)
             echo "[SCAN avg=$avg] $rel"
-            # 2026-06-27 v5:改用 mineru-api 长跑(8002)+ vllm 长跑(8000)
-            # mineru 跑 扫描 PDF 必走 /tasks 协议,只有 mineru-api/mineru-router 实现
-            # 架构:
-            #   mineru CLI → mineru-api :8002 (实现 FastAPI /tasks 协议)
-            #                  ↓
-            #                 vllm :8000 (OpenAI 协议,提供 VLM 模型)
-            # CLI 参数:
-            #   --api-url : mineru-api base URL (8002)
-            #   -u/--url : OpenAI server URL (vllm 8000),通过 task body 传到 mineru-api
-            local tmpdir=$(mktemp -d)
-            # 2026-06-27 v6 修复 segfault:中文路径 + 老 PDF 内部 P:\4.0 Projects\...
-            # 让 pdfium/ghostscript 在 ASCII 路径上跑;在 tmpdir 里建符号链接也行
-            local safe_src="$tmpdir/input.pdf"
-            if ! cp "$src" "$safe_src" 2>>"$LOG"; then
-                echo "  ⚠️ cp to ascii tmp failed: $rel" >> "$LOG"
-                rm -rf "$tmpdir"
-                return
-            fi
-            # 2026-06-27 v8:切回 vlm-engine 本地 GPU(commit 6fe8a8e 成功路径)
-            # vlm-http-client 需要 mineru-api+vllm 8000/8002 协同,显存争抢 → torch CUDA OOM → 子进程 exit=139
-            # vlm-engine:mineru 自己加载模型直接 GPU 推理,无 HTTP 链路,显存只占一份
-            # 需求:CUDA_HOME + HF_ENDPOINT(国内镜像)+ tmpdir (commit 6fe8a8e)
-            # 缺:telemetry 关闭(commit 6fe8a8e 修过)
-            if env UNSTRUCTURED_DISABLE_TELEMETRY=1 TMPDIR=/home/jack/tmp \
-                CUDA_HOME=/usr/lib/nvidia-cuda-toolkit HF_ENDPOINT=https://hf-mirror.com \
-                timeout 300 "$MN_ENV/mineru" -p "$safe_src" -o "$tmpdir" \
-                -b vlm-engine \
-                >> "$LOG" 2>&1; then
-                local found=$(find "$tmpdir" -name "*.md" -type f 2>/dev/null | head -1)
-                if [ -n "$found" ]; then
-                    # 2026-06-27 改:把全部产物装 <base>.pdf/ 子目录(图纸截图/现场照片/layout PDF 等)
-                    # 顶层 <base>.pdf.md 仍是 schema Gate 主入口
-                    # <base>.pdf/ 子目录 = 完整资产,Obsidian 直接渲染
-                    # md 引用 ./<base>.pdf/images/<hash>.jpg 相对路径
-                    local src_dir=$(dirname "$found")
-                    local asset_dir="$(dirname "$dst_file")/${base}"  # base = CW-A1-01.pdf
-                    rm -rf "$asset_dir"  # 清掉旧的(重跑覆盖)
-                    mkdir -p "$asset_dir"
-                    # cp md + images/ + layout/origin pdf + content_list json 等
-                    cp -r "$src_dir"/. "$asset_dir"/
-                    # 顶层 dst_file 是 schema Gate 主入口;cp md + sed 改 images/ 引用路径
-                    cp "$found" "$dst_file"
-                    # 把 md 里的 images/<hash>.jpg 改成 ./<base>/images/<hash>.jpg
-                    sed -i "s|images/|./${base}/images/|g" "$dst_file"
-                    count_pdf_scanned_done=$((count_pdf_scanned_done + 1))
-                    echo "[SCAN OK] $rel"  # v11.1:成功标记(stdout,主进程可见)
-                    result_tag="[SCAN OK]"
-                else
-                    echo "  ⚠️ mineru OK but no .md in $tmpdir: $rel" >> "$LOG"
-                    echo "[SCAN FAIL no-md] $rel"  # v11.1:失败标记
-                    result_tag="[SCAN FAIL]"
-                fi
+            if _process_mineru "$src" "$dst_file" "$base" "$rel"; then
+                echo "[SCAN OK] $rel"
+                result_tag="[SCAN OK]"
             else
-                local _exit=$?
-                echo "  ⚠️ mineru failed (exit=$_exit): $rel" >> "$LOG"
-                echo "[SCAN FAIL exit=$_exit] $rel"  # v11.1:失败标记
+                echo "[SCAN FAIL] $rel"
                 result_tag="[SCAN FAIL]"
             fi
-            rm -rf "$tmpdir"
         else
             count_pdf_text=$((count_pdf_text + 1))
             if pdftotext -layout "$src" "$dst_file" 2>> "$LOG"; then
-                result_tag="[PDF OK]"
+                # v11.10:pdftotext 产出太小,说明 scan 判错(阈值偏宽)自动转 mineru 兜底
+                local _sz=$(stat -c%s "$dst_file" 2>/dev/null || echo 0)
+                if [ "$_sz" -lt 200 ]; then
+                    echo "  ⚠️ pdftotext 产出太小(${_sz}B),自动转 mineru 兜底: $rel" >> "$LOG"
+                    rm -f "$dst_file"
+                    count_pdf_fallback=$((count_pdf_fallback + 1))
+                    if _process_mineru "$src" "$dst_file" "$base" "$rel"; then
+                        echo "[SCAN OK fallback] $rel"
+                        result_tag="[SCAN OK fallback]"
+                    else
+                        echo "[PDF FAIL fallback] $rel"
+                        result_tag="[PDF FAIL]"
+                    fi
+                else
+                    result_tag="[PDF OK]"
+                fi
             else
                 echo "  ⚠️ pdftotext failed: $rel" >> "$LOG"
                 result_tag="[PDF FAIL]"
@@ -429,6 +509,7 @@ convert_year() {
     count_md=0
     count_md_fail=0
     count_txt=0
+    count_pdf_fallback=0  # v11.10:pdftotext 兜底计数
 
     # v11 新增:后台任务队列 + pid 数组
     bg_queue=()
@@ -525,14 +606,11 @@ for x in xf: print(x)
     local total_files=$(wc -l < "$files_list")
     echo "[v11.6] 预扫描文件清单: $total_files 个 → $files_list"
 
-    # v11.6 预先 markitdown 队列:
-    # 在主循环开始前,主动把所有 office/text 文件**预先**塞进 bg_queue
-    # 这样 main loop 处理扫描 PDF 同步跑时,bg_queue 已经满了,markitdown worker 自动启动
-    #
-    # 优化:不全部预塞(可能 OOM),而是**预留 MAX_PARALLEL** 个空位给主循环新文件,
-    # 预先塞 (MAX_PARALLEL * 2) 个 office/text 文件
+    # v11.11 预先 markitdown 队列: 从 MAX_PARALLEL 扩到 *3(原 v11.6 fix 怕 OOM,但现 24G MemoryHigh 览底,3 倍安全)
+    # 给后面可能撞上的扫描 PDF 预留更多 bg worker 缓冲,避免主循环阻塞时 bg 快速干渴
+    # 同时会启动后台 prefill daemon(见下面),持续补 bg_queue
     local _prefill_count=0
-    local _prefill_max=$MAX_PARALLEL  # v11.6 fix: 只塞 MAX_PARALLEL 个,避免一次启 8 worker OOM
+    local _prefill_max=$((MAX_PARALLEL * 3))  # v11.11: 从 *1 提 *3,伏击扫描 PDF 阻塞期 bg 干渴
     while IFS= read -r rel; do
         [ -z "$rel" ] && continue
         case "$rel" in
@@ -571,6 +649,15 @@ for x in xf: print(x)
         echo "[v11.6] 立即 flush_bg_queue 启动 $_prefill_count 个 markitdown worker"
         flush_bg_queue
     fi
+
+    # v11.11:启动 prefill 守护进程,独立并行处理 bg-eligible 文件
+    # 主循环被扫描 PDF mineru 阻塞时,bg worker 不会干渴
+    local _prefill_deltas=$(mktemp)
+    (
+        _prefill_daemon_main "$files_list" "$_prefill_deltas"
+    ) &
+    local _prefill_pid=$!
+    echo "[v11.11] prefill daemon 启动 (max_jobs=$((MAX_PARALLEL / 2)), pid=$_prefill_pid)"
 
     while IFS= read -r rel; do
         [ -z "$rel" ] && continue
@@ -638,6 +725,26 @@ for x in xf: print(x)
     # v11 新增:文件末尾 flush 剩余后台任务
     flush_bg_queue
 
+    # v11.11:等 prefill daemon 收尾 + 聚合 delta
+    if [ -n "${_prefill_pid:-}" ]; then
+        echo "[v11.11] 等待 prefill daemon 收尾..."
+        wait "$_prefill_pid" 2>/dev/null
+    fi
+    if [ -s "$_prefill_deltas" ]; then
+        while read -r _d _ds _dse _dpt _dps _dpsd _dm _dmf _dt; do
+            count_total=$((count_total + _d))
+            count_skip=$((count_skip + _ds))
+            count_skip_exists=$((count_skip_exists + _dse))
+            count_pdf_text=$((count_pdf_text + _dpt))
+            count_pdf_scanned=$((count_pdf_scanned + _dps))
+            count_pdf_scanned_done=$((count_pdf_scanned_done + _dpsd))
+            count_md=$((count_md + _dm))
+            count_md_fail=$((count_md_fail + _dmf))
+            count_txt=$((count_txt + _dt))
+        done < "$_prefill_deltas"
+    fi
+    rm -f "$_prefill_deltas"
+
     echo ""
     echo "=== $y 完成 ==="
     echo "总文件:     $count_total"
@@ -645,6 +752,8 @@ for x in xf: print(x)
     echo "跳过(扩展): $count_skip"
     echo "非扫描PDF:  $count_pdf_text (pdftotext)"
     echo "扫描件PDF:  $count_pdf_scanned_done / $count_pdf_scanned (mineru)"
+    echo "pdftotext 兜底: $count_pdf_fallback (产出<200B 自动转 mineru)"
+    echo "prefill daemon: $_prefill_count (启动时预填) + daemon 后续补"
     echo "markitdown: $((count_md - count_md_fail)) / $count_md"
     echo "txt/log:    $count_txt"
     echo ""
